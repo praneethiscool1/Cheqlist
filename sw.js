@@ -2,7 +2,7 @@
 // It does NOT run reminders in the background. Reminders are still checked by the page itself.
 
 // If you change any app file, change this version number so phones pick up the new files.
-var CACHE_NAME = 'todo-checklist-v1';
+var CACHE_NAME = 'todo-checklist-v2';
 
 var APP_FILES = [
   './',
@@ -41,7 +41,7 @@ self.addEventListener('fetch', function (event) {
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(req).then(function (response) {
+    fetch(req, { cache: 'no-cache' }).then(function (response) {
       var copy = response.clone();
       caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
       return response;

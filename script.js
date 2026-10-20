@@ -10,6 +10,7 @@
   // ---------- Page elements ----------
   var form = document.getElementById('add-form');
   var taskInput = document.getElementById('task-input');
+  var newDate = document.getElementById('new-date');
   var newReminder = document.getElementById('new-reminder');
   var newColorSlot = document.getElementById('new-color-slot');
   var listEl = document.getElementById('task-list');
@@ -18,9 +19,11 @@
   var notifyBar = document.getElementById('notify-bar');
 
   // Each task looks like:
-  // { id, text, done, color: 'green' | 'yellow' | 'red' | null,
+  // { id, text, done, date: 'YYYY-MM-DD', color: 'green' | 'yellow' | 'red' | null,
   //   reminder: 'YYYY-MM-DDTHH:MM' or '', notified: true/false }
+  var renderedToday = ''; // the day that "Today" meant the last time the list was drawn
   var tasks = loadTasks();
+  saveTasks(); // stores the date given to older tasks that had none
   var newColor = null; // priority chosen in the "add" form (none until you pick one)
   var saveWarningShown = false;
 
@@ -37,6 +40,7 @@
             id: typeof t.id === 'string' ? t.id : makeId(),
             text: t.text,
             done: t.done === true,
+            date: isDateString(t.date) ? t.date : todayString(),
             color: COLORS.indexOf(t.color) !== -1 ? t.color : null,
             reminder: typeof t.reminder === 'string' ? t.reminder : '',
             notified: t.notified === true
@@ -67,6 +71,48 @@
     var node = document.createElement(tag);
     if (className) node.className = className;
     return node;
+  }
+
+  function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  // Today's date as "YYYY-MM-DD" in your local time zone.
+  function todayString() {
+    var d = new Date();
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+  function isDateString(value) {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  }
+
+  function parseDateString(value) {
+    var p = value.split('-');
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+
+  // Heading text for a day: "Today", "Tomorrow", "Yesterday" or the weekday and date.
+  function dayLabel(date, today) {
+    var d = parseDateString(date);
+    var options = { weekday: 'short', day: 'numeric', month: 'short' };
+    if (d.getFullYear() !== parseDateString(today).getFullYear()) options.year = 'numeric';
+    var full = d.toLocaleDateString([], options);
+    var diff = Math.round((d - parseDateString(today)) / 86400000);
+    if (diff === 0) return { main: 'Today', sub: full };
+    if (diff === 1) return { main: 'Tomorrow', sub: full };
+    if (diff === -1) return { main: 'Yesterday', sub: full };
+    return { main: full, sub: '' };
+  }
+
+  // Order of the day headings: today first, then coming days (soonest first),
+  // then earlier days (most recent first).
+  function compareDays(a, b) {
+    function group(d) { return d === renderedToday ? 0 : (d > renderedToday ? 1 : 2); }
+    var ga = group(a), gb = group(b);
+    if (ga !== gb) return ga - gb;
+    if (ga === 1) return a < b ? -1 : 1;
+    return a < b ? 1 : -1;
   }
 
   function capitalize(word) {
@@ -157,6 +203,12 @@
       paintRow();
     });
 
+    // The day this task belongs to
+    var dateInput = el('input');
+    dateInput.type = 'date';
+    dateInput.value = task.date;
+    dateInput.setAttribute('aria-label', 'Task date');
+
     // Optional reminder
     var reminderBox = el('span', 'reminder');
     var reminderInput = el('input');
@@ -173,6 +225,7 @@
     reminderBox.appendChild(clearReminder);
 
     meta.appendChild(picker);
+    meta.appendChild(dateInput);
     meta.appendChild(reminderBox);
     li.appendChild(check);
     li.appendChild(text);
@@ -199,8 +252,13 @@
     del.addEventListener('click', function () {
       tasks = tasks.filter(function (t) { return t.id !== task.id; });
       saveTasks();
-      li.remove();
-      updateEmpty();
+      renderAll();
+    });
+
+    dateInput.addEventListener('change', function () {
+      task.date = isDateString(dateInput.value) ? dateInput.value : todayString();
+      saveTasks();
+      renderAll(); // the task moves under its new date heading
     });
 
     reminderInput.addEventListener('change', function () {
@@ -227,9 +285,39 @@
     emptyEl.hidden = tasks.length > 0;
   }
 
+  // Draws every task, grouped under a heading for its date.
   function renderAll() {
+    renderedToday = todayString();
     listEl.textContent = '';
-    tasks.forEach(function (task) { listEl.appendChild(renderTask(task)); });
+
+    var byDate = {};
+    var dates = [];
+    tasks.forEach(function (task) {
+      if (!byDate[task.date]) {
+        byDate[task.date] = [];
+        dates.push(task.date);
+      }
+      byDate[task.date].push(task);
+    });
+    dates.sort(compareDays);
+
+    dates.forEach(function (date) {
+      var section = el('section', 'day' + (date === renderedToday ? ' is-today' : ''));
+      var label = dayLabel(date, renderedToday);
+      var heading = el('h2', 'day-title');
+      heading.textContent = label.main;
+      if (label.sub) {
+        var sub = el('span', 'day-date');
+        sub.textContent = label.sub;
+        heading.appendChild(sub);
+      }
+      var list = el('ul', 'task-list');
+      byDate[date].forEach(function (task) { list.appendChild(renderTask(task)); });
+      section.appendChild(heading);
+      section.appendChild(list);
+      listEl.appendChild(section);
+    });
+
     updateEmpty();
   }
 
@@ -246,6 +334,7 @@
       id: makeId(),
       text: text,
       done: false,
+      date: isDateString(newDate.value) ? newDate.value : todayString(),
       color: newColor,
       reminder: newReminder.value,
       notified: false
@@ -253,8 +342,7 @@
 
     tasks.unshift(task); // newest task goes on top
     saveTasks();
-    listEl.insertBefore(renderTask(task), listEl.firstChild);
-    updateEmpty();
+    renderAll();
 
     taskInput.value = '';
     newReminder.value = '';
@@ -318,6 +406,13 @@
 
   // Looks for reminders whose time has arrived and that we haven't announced yet.
   function checkReminders() {
+    // A new day started while the app was open: refresh the "Today" heading.
+    if (todayString() !== renderedToday) {
+      var oldToday = renderedToday;
+      renderAll();
+      if (newDate.value === oldToday) newDate.value = renderedToday;
+    }
+
     var now = Date.now();
     var changed = false;
 
@@ -334,7 +429,7 @@
     if (changed) saveTasks();
 
     // Refresh the "Overdue" look of rows that are on screen.
-    Array.prototype.forEach.call(listEl.children, function (li) { li.paintRow(); });
+    Array.prototype.forEach.call(listEl.querySelectorAll('.task'), function (li) { li.paintRow(); });
   }
 
   setInterval(checkReminders, CHECK_EVERY_MS);
@@ -382,6 +477,7 @@
   }
 
   // ---------- Start ----------
+  newDate.value = todayString();
   renderAll();
   updateNotifyBar();
   checkReminders();
