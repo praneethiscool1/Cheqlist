@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>To-Do Checklist</title>
+
+  <!-- Makes the page installable as an app -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#3b6cf6">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="To-Do">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+  <h1>To-Do Checklist</h1>
+
+  <div id="reminders" class="reminders" aria-live="polite"></div>
+
+  <form id="add-form" class="add-form" autocomplete="off">
+    <div class="add-row">
+      <input id="task-input" type="text" placeholder="Add a task…" maxlength="200" aria-label="New task">
+      <button type="submit" class="add-btn">Add</button>
+    </div>
+    <div class="add-options">
+      <div class="option">
+        <span class="option-label">Priority (optional)</span>
+        <span id="new-color-slot"></span>
+      </div>
+      <label class="option">
+        <span class="option-label">Reminder (optional)</span>
+        <input id="new-reminder" type="datetime-local">
+      </label>
+    </div>
+  </form>
+
+  <p id="notify-bar" class="notify-bar"></p>
+
+  <ul id="task-list" class="task-list"></ul>
+  <p id="empty" class="empty" hidden>No tasks yet. Add your first one above.</p>
+
+  <p class="note">
+    Tasks are saved in this browser on this device only. Reminders only work while the app is
+    open (or running in the background). If it is fully closed, nothing can alert you; a reminder
+    you missed shows up, and the task is marked overdue in red, the next time you open it.
+    Clearing your browser data erases your tasks.
+  </p>
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
