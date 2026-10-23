@@ -1,5 +1,9 @@
 // To-Do Checklist: plain JavaScript (plus the small SortableJS file for drag-and-drop).
-// Tasks are saved in the browser's localStorage, so they survive refreshes and restarts.
+// Runs in two places with the same code:
+//   1) as a web app / installed web app (GitHub Pages), and
+//   2) inside the Android app (built with Capacitor), where it also uses native
+//      scheduled notifications and native storage.
+// Tasks are saved in localStorage; the Android app also mirrors them into native storage.
 (function () {
   'use strict';
 
@@ -10,27 +14,50 @@
   var STORAGE_KEY = 'todo-checklist-v1'; // same key as older versions, so saved tasks still load
   var BACKUP_KEY = 'todo-checklist-v1-unreadable-backup';
   var COLORS = ['green', 'yellow', 'red'];
-  var CHECK_EVERY_MS = 10000;          // how often we look for due reminders
-  var ON_TIME_WINDOW_MS = 2 * 60 * 1000; // a reminder up to 2 minutes late still counts as "on time"
+  var CHECK_EVERY_MS = 10000;             // how often the open app looks for due reminders
+  var ON_TIME_WINDOW_MS = 2 * 60 * 1000;  // a reminder up to 2 minutes late still counts as "on time"
+  var DESC_MAX = 1000;
+  var MAX_NID = 2000000000;               // native notification ids stay below this
+  var TEST_NOTIFICATION_ID = 2100000000;  // reserved for the "test notification" button
+  var CHANNEL_ID = 'reminders';
 
   // ---------- Page elements ----------
   var form = document.getElementById('add-form');
   var taskInput = document.getElementById('task-input');
+  var descInput = document.getElementById('new-desc');
   var draftSlot = document.getElementById('draft-pills');
   var newColorSlot = document.getElementById('new-color-slot');
   var listEl = document.getElementById('task-list');
   var emptyEl = document.getElementById('empty');
   var remindersEl = document.getElementById('reminders');
   var notifyBar = document.getElementById('notify-bar');
+  var nativeTips = document.getElementById('native-tips');
+
+  // ---------- Are we inside the Android app? ----------
+  var LN = null;    // native scheduled notifications
+  var Prefs = null; // native key/value storage
+  try {
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' &&
+        window.Capacitor.isNativePlatform() && typeof window.Capacitor.registerPlugin === 'function') {
+      LN = window.Capacitor.registerPlugin('LocalNotifications');
+      Prefs = window.Capacitor.registerPlugin('Preferences');
+    }
+  } catch (e) {
+    LN = null;
+    Prefs = null;
+  }
+  var isNativeApp = !!LN;
 
   // ---------- Data ----------
   // Each task looks like:
-  // { id, text, done,
-  //   date: 'YYYY-MM-DD' or ''  (empty = undated, shown under "Anytime"),
+  // { id, nid, text, description, done,
+  //   date: 'YYYY-MM-DD' or ''   (empty = undated),
+  //   slot: for undated tasks only: where it sits among the date groups.
+  //         '^' = above everything, '$' = below everything, 'YYYY-MM-DD' = just above that date's group,
   //   color: 'green' | 'yellow' | 'red' | null,
-  //   reminder: 'YYYY-MM-DDTHH:MM' or ''  (your local time; empty = no reminder),
+  //   reminder: 'YYYY-MM-DDTHH:MM' or ''   (your local time),
   //   notified: true once its reminder has been shown or skipped,
-  //   order: number; tasks inside one group are shown in ascending order }
+  //   order: number; tasks in the same list are shown in ascending order }
   var tasks = [];
   var needsMigrationSave = false;
   var renderedToday = '';
@@ -39,6 +66,7 @@
   var lastNotifyError = '';
   var saveWarningShown = false;
   var canSort = typeof Sortable !== 'undefined';
+  var booted = false;
 
   // The "new task" form keeps its choices here until you press Add.
   var draft = { date: '', reminder: '', color: null };
@@ -119,12 +147,9 @@
     return { main: full, sub: '' };
   }
 
-  // Order of the groups: "Anytime" (undated) always first, then today,
-  // then coming days (soonest first), then earlier days (most recent first).
+  // Order of the date groups: today, then coming days (soonest first), then earlier days (most recent first).
   function compareDays(a, b) {
     if (a === b) return 0;
-    if (a === '') return -1;
-    if (b === '') return 1;
     function rank(d) { return d === renderedToday ? 0 : (d > renderedToday ? 1 : 2); }
     var ra = rank(a), rb = rank(b);
     if (ra !== rb) return ra - rb;
@@ -152,7 +177,50 @@
     return null;
   }
 
-  // A new or moved task goes to the top of its group.
+  function nextNid() {
+    var max = 0;
+    tasks.forEach(function (t) { if (t.nid > max) max = t.nid; });
+    return max + 1;
+  }
+
+  function firstLine(text, max) {
+    var line = String(text).split('\n')[0].trim();
+    return line.length > max ? line.slice(0, max - 1) + '…' : line;
+  }
+
+  // ---------- Where tasks sit ----------
+  // Dated tasks live in one group per date. Undated tasks are free to sit anywhere between
+  // (or above or below) the date groups. The segments are the gaps around the date groups:
+  // segment 0 is above the first group, segment N is below the last one.
+  function datedKeys() {
+    var seen = {};
+    var keys = [];
+    tasks.forEach(function (t) {
+      if (t.date && !seen[t.date]) { seen[t.date] = true; keys.push(t.date); }
+    });
+    keys.sort(compareDays);
+    return keys;
+  }
+
+  // Which segment an undated task currently belongs to. A task whose anchor date has no tasks
+  // any more simply sits above the next date group that still exists.
+  function segmentIndex(task, keys) {
+    if (task.slot === '$') return keys.length;
+    if (!isDateString(task.slot)) return 0;
+    for (var k = 0; k < keys.length; k++) {
+      if (compareDays(keys[k], task.slot) >= 0) return k;
+    }
+    return keys.length;
+  }
+
+  // The anchor to save for a task dropped into segment k.
+  function slotForSegment(k, keys) {
+    if (k <= 0) return '^';
+    if (k >= keys.length) return '$';
+    return keys[k];
+  }
+
+  // A new or moved task goes to the top of its group / segment.
   function topOrder(date, except) {
     var min = null;
     tasks.forEach(function (t) {
@@ -161,7 +229,58 @@
     return min === null ? 0 : min - 1;
   }
 
+  function topOrderFloating(segment, except) {
+    var keys = datedKeys();
+    var min = null;
+    tasks.forEach(function (t) {
+      if (t === except || t.date !== '' || segmentIndex(t, keys) !== segment) return;
+      if (min === null || t.order < min) min = t.order;
+    });
+    return min === null ? 0 : min - 1;
+  }
+
   // ---------- Saving and loading ----------
+  // Turns saved or imported data into clean task objects. Older versions of the data
+  // (no date, no order, no description, ...) are upgraded here without losing anything.
+  function normalizeTasks(data) {
+    var out = [];
+    var seenIds = {};
+    var seenNids = {};
+    var maxNid = 0;
+
+    data.forEach(function (t) {
+      if (!t || typeof t.text !== 'string') return;
+      var id = (typeof t.id === 'string' && t.id && !seenIds[t.id]) ? t.id : makeId();
+      seenIds[id] = true;
+
+      var nid = (typeof t.nid === 'number' && t.nid >= 1 && t.nid <= MAX_NID && Math.floor(t.nid) === t.nid && !seenNids[t.nid]) ? t.nid : 0;
+      if (nid) { seenNids[nid] = true; if (nid > maxNid) maxNid = nid; }
+
+      var date = isDateString(t.date) ? t.date : '';
+      var reminder = normalizeReminder(t.reminder);
+      var slot = '';
+      if (!date) slot = (t.slot === '^' || t.slot === '$' || isDateString(t.slot)) ? t.slot : '^';
+
+      out.push({
+        id: id,
+        nid: nid,
+        text: t.text,
+        description: typeof t.description === 'string' ? t.description.slice(0, DESC_MAX) : '',
+        done: t.done === true,
+        date: date,
+        slot: slot,
+        color: COLORS.indexOf(t.color) !== -1 ? t.color : null,
+        reminder: reminder,
+        notified: reminder ? t.notified === true : false,
+        // Older tasks had no "order": use their saved position so the order you saw is kept.
+        order: (typeof t.order === 'number' && isFinite(t.order)) ? t.order : out.length
+      });
+    });
+
+    out.forEach(function (t) { if (!t.nid) t.nid = ++maxNid; });
+    return out;
+  }
+
   function loadTasks() {
     var raw = null;
     try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return []; }
@@ -176,31 +295,15 @@
       return [];
     }
     if (!Array.isArray(data)) return [];
-
-    var out = [];
-    data.forEach(function (t) {
-      if (!t || typeof t.text !== 'string') return;
-      var reminder = normalizeReminder(t.reminder);
-      out.push({
-        id: typeof t.id === 'string' ? t.id : makeId(),
-        text: t.text,
-        done: t.done === true,
-        date: isDateString(t.date) ? t.date : '', // older tasks without a date stay undated
-        color: COLORS.indexOf(t.color) !== -1 ? t.color : null,
-        reminder: reminder,
-        notified: reminder ? t.notified === true : false,
-        // Older tasks had no "order": use their saved position so the order you saw is kept.
-        order: (typeof t.order === 'number' && isFinite(t.order)) ? t.order : out.length
-      });
-    });
     needsMigrationSave = true;
-    return out;
+    return normalizeTasks(data);
   }
 
   function saveTasks() {
+    var json;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-      return true;
+      json = JSON.stringify(tasks);
+      localStorage.setItem(STORAGE_KEY, json);
     } catch (e) {
       if (!saveWarningShown) {
         saveWarningShown = true;
@@ -208,6 +311,12 @@
       }
       return false;
     }
+    // Android app: keep a second copy in native storage, and keep the phone's alarms in step.
+    if (Prefs) {
+      try { Prefs.set({ key: STORAGE_KEY, value: json }).catch(function () { /* the copy in localStorage is still there */ }); } catch (e) { /* ignore */ }
+    }
+    scheduleNativeSync();
+    return true;
   }
 
   // ---------- Banners (in-app messages) ----------
@@ -290,6 +399,15 @@
     return { wrap: wrap, pill: pill };
   }
 
+  // A plain pill-shaped button (used for "Add description").
+  function makeButtonPill(text, onClick) {
+    var b = el('button', 'pill pill-button');
+    b.type = 'button';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
   // Turns what the reminder input gave us into a full 'YYYY-MM-DDTHH:MM'.
   // Returns '' (cleared), a string (valid) or null (not usable).
   function parseReminderInput(date, value, timeOnly) {
@@ -313,6 +431,21 @@
   // ---------- The "new task" form ----------
   var newColorPicker = makeColorPicker(null, function (color) { draft.color = color; });
   newColorSlot.appendChild(newColorPicker);
+
+  var descButton = makeButtonPill('Add description', function () {
+    descInput.hidden = !descInput.hidden;
+    if (!descInput.hidden) descInput.focus();
+    updateDescButton();
+  });
+  descButton.setAttribute('aria-controls', 'new-desc');
+  descInput.addEventListener('input', updateDescButton);
+
+  function updateDescButton() {
+    var has = descInput.value.trim() !== '';
+    descButton.textContent = descInput.hidden ? (has ? 'Edit description' : 'Add description') : 'Hide description';
+    descButton.classList.toggle('is-set', has);
+    descButton.setAttribute('aria-expanded', descInput.hidden ? 'false' : 'true');
+  }
 
   function renderDraftControls() {
     draftSlot.textContent = '';
@@ -348,6 +481,8 @@
 
     draftSlot.appendChild(datePill.wrap);
     draftSlot.appendChild(reminderPill.wrap);
+    draftSlot.appendChild(descButton);
+    updateDescButton();
   }
 
   function setDraftDate(date) {
@@ -374,21 +509,27 @@
       addBanner(PAST_MESSAGE, 'warn');
     }
 
+    var undated = draft.date === '';
     var task = {
       id: makeId(),
+      nid: nextNid(),
       text: text,
+      description: descInput.value.trim().slice(0, DESC_MAX),
       done: false,
       date: draft.date,          // stays empty unless you picked a date
+      slot: undated ? '^' : '',  // a new undated task goes to the very top
       color: draft.color,
       reminder: reminder,
       notified: false,
-      order: topOrder(draft.date, null)
+      order: undated ? topOrderFloating(0, null) : topOrder(draft.date, null)
     };
 
     tasks.unshift(task);
     saveTasks();
 
     taskInput.value = '';
+    descInput.value = '';
+    descInput.hidden = true;
     draft = { date: '', reminder: '', color: null };
     newColorPicker.reset();
     renderDraftControls();
@@ -403,12 +544,18 @@
     if (date === task.date) { renderAll(); return; }
 
     task.date = date;
-    task.order = topOrder(date, task); // goes to the top of its new group; other tasks keep their order
-    if (date && task.reminder) {
-      var shifted = shiftReminder(task.reminder, date);
-      if (!shifted) addBanner('The reminder for "' + task.text + '" was removed because that time has already passed on the new date.', 'warn');
-      task.reminder = shifted;
-      task.notified = false;
+    if (date) {
+      task.slot = '';
+      task.order = topOrder(date, task); // top of its new group; other tasks keep their order
+      if (task.reminder) {
+        var shifted = shiftReminder(task.reminder, date);
+        if (!shifted) addBanner('The reminder for "' + task.text + '" was removed because that time has already passed on the new date.', 'warn');
+        task.reminder = shifted;
+        task.notified = false;
+      }
+    } else {
+      task.slot = '^';                    // an undated task goes to the very top
+      task.order = topOrderFloating(0, task);
     }
     saveTasks();
     renderAll();
@@ -447,11 +594,23 @@
     check.checked = task.done;
     check.setAttribute('aria-label', 'Mark task as done');
 
+    var main = el('div', 'task-main');
     var text = el('span', 'task-text');
     text.textContent = task.text;
     text.tabIndex = 0;
     text.setAttribute('role', 'button');
     text.title = 'Tap to edit';
+    main.appendChild(text);
+
+    var descEl = null;
+    if (task.description) {
+      descEl = el('div', 'task-desc');
+      descEl.textContent = task.description;
+      descEl.tabIndex = 0;
+      descEl.setAttribute('role', 'button');
+      descEl.title = 'Tap to edit the description';
+      main.appendChild(descEl);
+    }
 
     var del = el('button', 'delete-btn');
     del.type = 'button';
@@ -501,10 +660,13 @@
     meta.appendChild(picker);
     meta.appendChild(datePill.wrap);
     meta.appendChild(reminderPill.wrap);
+    if (!task.description) {
+      meta.appendChild(makeButtonPill('Add description', function () { startDescEdit(); }));
+    }
 
     li.appendChild(handle);
     li.appendChild(check);
-    li.appendChild(text);
+    li.appendChild(main);
     li.appendChild(del);
     li.appendChild(meta);
 
@@ -537,7 +699,7 @@
       input.value = task.text;
       input.maxLength = 200;
       input.setAttribute('aria-label', 'Edit task');
-      li.replaceChild(input, text);
+      main.replaceChild(input, text);
       input.focus();
       input.select();
 
@@ -551,7 +713,7 @@
           saveTasks();
         }
         text.textContent = task.text;
-        li.replaceChild(text, input);
+        main.replaceChild(text, input);
       }
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -564,13 +726,64 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startEdit(); }
     });
 
+    // Add or edit the description. Save and Cancel are explicit buttons so nothing is lost by accident.
+    function startDescEdit() {
+      if (main.querySelector('.desc-editor')) return;
+      var box = el('div', 'desc-editor');
+      var area = el('textarea');
+      area.rows = 3;
+      area.maxLength = DESC_MAX;
+      area.value = task.description;
+      area.placeholder = 'Description (optional)';
+      area.setAttribute('aria-label', 'Task description');
+      var actions = el('div', 'desc-actions');
+      var save = el('button', 'desc-save');
+      save.type = 'button';
+      save.textContent = 'Save';
+      var cancel = el('button', 'desc-cancel');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      actions.appendChild(save);
+      actions.appendChild(cancel);
+      box.appendChild(area);
+      box.appendChild(actions);
+      if (descEl) descEl.hidden = true;
+      main.appendChild(box);
+      area.focus();
+
+      function close() {
+        box.remove();
+        if (descEl) descEl.hidden = false;
+      }
+      save.addEventListener('click', function () {
+        task.description = area.value.trim().slice(0, DESC_MAX);
+        saveTasks();
+        renderAll();
+      });
+      cancel.addEventListener('click', close);
+      area.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+        else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save.click(); }
+      });
+    }
+    if (descEl) {
+      descEl.addEventListener('click', startDescEdit);
+      descEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startDescEdit(); }
+      });
+    }
+
     paintRow();
     return li;
   }
 
-  // ---------- Drawing the whole list, grouped by date ----------
+  // ---------- Drawing the whole list ----------
   function updateEmpty() {
     emptyEl.hidden = tasks.length > 0;
+  }
+
+  function byOrder(a, b) {
+    return (a.order - b.order) || (tasks.indexOf(a) - tasks.indexOf(b));
   }
 
   function renderAll() {
@@ -581,91 +794,131 @@
     renderedToday = todayString();
     listEl.textContent = '';
 
-    var byDate = {};
-    var dates = [];
+    var keys = datedKeys();
+    var datedBy = {};
+    var segments = [];
+    for (var s = 0; s <= keys.length; s++) segments.push([]);
+    var anyUndated = false;
+
     tasks.forEach(function (task) {
-      if (!byDate[task.date]) {
-        byDate[task.date] = [];
-        dates.push(task.date);
-      }
-      byDate[task.date].push(task);
-    });
-    dates.sort(compareDays);
-
-    dates.forEach(function (date) {
-      // Inside a group the order is exactly the order you chose (the saved "order" number).
-      var group = byDate[date].slice().sort(function (a, b) {
-        return (a.order - b.order) || (tasks.indexOf(a) - tasks.indexOf(b));
-      });
-
-      var section = el('section', 'day' + (date === '' ? ' is-anytime' : '') + (date === renderedToday ? ' is-today' : ''));
-      section.dataset.date = date;
-
-      var heading = el('h2', 'day-title');
-      if (date === '') {
-        heading.textContent = 'Anytime';
-        var none = el('span', 'day-date');
-        none.textContent = 'No date';
-        heading.appendChild(none);
+      if (task.date) {
+        (datedBy[task.date] = datedBy[task.date] || []).push(task);
       } else {
-        var label = dayLabel(date);
-        heading.textContent = label.main;
-        if (label.sub) {
-          var sub = el('span', 'day-date');
-          sub.textContent = label.sub;
-          heading.appendChild(sub);
-        }
-      }
-
-      var list = el('ul', 'task-list');
-      group.forEach(function (task) { list.appendChild(renderTask(task)); });
-      section.appendChild(heading);
-      section.appendChild(list);
-      listEl.appendChild(section);
-
-      if (canSort) {
-        sortables.push(Sortable.create(list, {
-          draggable: '.task',
-          handle: '.drag-handle',   // only the grip starts a drag, so taps elsewhere never move a task
-          forceFallback: true,       // same behaviour for mouse and touch
-          fallbackOnBody: true,
-          fallbackTolerance: 3,
-          animation: 0,
-          ghostClass: 'sortable-ghost',
-          chosenClass: 'sortable-chosen',
-          onStart: function () { dragging = true; document.body.classList.add('is-dragging'); },
-          onEnd: function () {
-            dragging = false;
-            document.body.classList.remove('is-dragging');
-            saveOrderFromList(list);
-          }
-        }));
+        anyUndated = true;
+        segments[segmentIndex(task, keys)].push(task);
       }
     });
+
+    for (var k = 0; k <= keys.length; k++) {
+      // Undated tasks: one list per gap, so they can be dropped above, between or below the date groups.
+      if (anyUndated) listEl.appendChild(renderFloatingSegment(k, segments[k].sort(byOrder), slotForSegment(k, keys)));
+      if (k < keys.length) listEl.appendChild(renderDateGroup(keys[k], datedBy[keys[k]].sort(byOrder)));
+    }
 
     updateEmpty();
   }
 
-  // Saves the order of one group exactly as it now appears on screen.
-  function saveOrderFromList(list) {
-    Array.prototype.forEach.call(list.querySelectorAll('.task'), function (li, i) {
-      var task = findTask(li.dataset.id);
-      if (task) task.order = i;
+  function renderDateGroup(date, group) {
+    var section = el('section', 'day' + (date === renderedToday ? ' is-today' : ''));
+    section.dataset.date = date;
+
+    var heading = el('h2', 'day-title');
+    var label = dayLabel(date);
+    heading.textContent = label.main;
+    if (label.sub) {
+      var sub = el('span', 'day-date');
+      sub.textContent = label.sub;
+      heading.appendChild(sub);
+    }
+
+    var list = el('ul', 'task-list');
+    group.forEach(function (task) { list.appendChild(renderTask(task)); });
+    section.appendChild(heading);
+    section.appendChild(list);
+    makeSortable(list, 'date-' + date);
+    return section;
+  }
+
+  function renderFloatingSegment(index, group, slot) {
+    var section = el('section', 'floating' + (group.length ? '' : ' is-empty'));
+    section.dataset.segment = String(index);
+    section.dataset.slot = slot;
+
+    var heading = el('h2', 'day-title seg-title');
+    heading.textContent = 'Anytime';
+    var none = el('span', 'day-date');
+    none.textContent = 'No date';
+    heading.appendChild(none);
+
+    var list = el('ul', 'task-list floating-list');
+    list.dataset.slot = slot;
+    group.forEach(function (task) { list.appendChild(renderTask(task)); });
+    section.appendChild(heading);
+    section.appendChild(list);
+    makeSortable(list, 'floating');
+    return section;
+  }
+
+  // Dated groups only reorder inside themselves. All the "Anytime" lists share one group name,
+  // so an undated task can be dragged from any of them into any other.
+  function makeSortable(list, groupName) {
+    if (!canSort) return;
+    sortables.push(Sortable.create(list, {
+      group: groupName,
+      draggable: '.task',
+      handle: '.drag-handle',   // only the grip starts a drag, so taps elsewhere never move a task
+      forceFallback: true,       // same behaviour for mouse and touch
+      fallbackOnBody: true,
+      fallbackTolerance: 3,
+      emptyInsertThreshold: 32,  // lets you drop into an empty gap
+      scrollSensitivity: 80,
+      animation: 0,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      onStart: function () { dragging = true; document.body.classList.add('is-dragging'); },
+      onEnd: onDragEnd
+    }));
+  }
+
+  // Saves exactly what is on screen: the order of each list that was touched, and for undated
+  // tasks the gap they now sit in.
+  function onDragEnd(evt) {
+    dragging = false;
+    document.body.classList.remove('is-dragging');
+
+    var lists = [evt.from];
+    if (evt.to && evt.to !== evt.from) lists.push(evt.to);
+    lists.forEach(function (list) {
+      var slot = list.dataset.slot; // only the "Anytime" lists have one
+      Array.prototype.filter.call(list.children, function (c) { return c.classList.contains('task'); })
+        .forEach(function (li, i) {
+          var task = findTask(li.dataset.id);
+          if (!task) return;
+          task.order = i;
+          if (slot !== undefined && task.date === '') task.slot = slot;
+        });
     });
     saveTasks();
+
+    // Moved to a different gap: redraw so headings and empty gaps are right.
+    // Done after Sortable has finished with this drag.
+    if (evt.to && evt.to !== evt.from) setTimeout(renderAll, 0);
   }
 
   // ---------- Reminders ----------
   // A reminder is "pending" while the task has a reminder and `notified` is false.
-  // Only this one function decides when a reminder fires, and it runs from one timer,
-  // so a reminder can never fire twice from a re-draw, refresh or edit.
+  // Only this one function decides when the open app shows a reminder, and it runs from one timer,
+  // so a reminder can never show twice from a re-draw, refresh or edit.
   //
-  //  - Reminder time arrives while the app is open: in-app banner (+ system notification if allowed).
+  //  - Reminder time arrives while the app is open: in-app banner (+ a system notification on the web;
+  //    in the Android app the phone's own alarm shows the notification).
   //  - Task is done when the time arrives: the reminder is skipped silently and never fires later,
   //    even if you untick the task.
-  //  - App was closed when the time passed: the next time you open it you get one "Missed reminder"
-  //    banner (no system notification for something that old).
+  //  - The time passed while the app was closed: the next time you open it you get one "Missed reminder"
+  //    banner (no new system notification for something that old).
   function checkReminders() {
+    if (!booted) return;
+
     // A new day started while the app was open: refresh the "Today" heading.
     if (todayString() !== renderedToday) renderAll();
 
@@ -712,11 +965,12 @@
   }
 
   function fireReminder(task) {
-    // 1) In-app reminder: always works while the page is open.
+    // 1) In-app reminder: always works while the app is open.
     addBanner('Reminder: ' + task.text + ' (' + reminderLabel(task) + ')');
 
-    // 2) System notification: only if permission was granted. Delivery is not guaranteed.
-    if (notificationsSupported() && Notification.permission === 'granted') {
+    // 2) System notification on the web, if permission was granted. Delivery is not guaranteed.
+    //    (The Android app does not need this: the phone's own alarm shows the notification.)
+    if (!isNativeApp && notificationsSupported() && Notification.permission === 'granted') {
       showSystemNotification('Task reminder', task.text + ' • ' + reminderLabel(task), 'task-' + task.id)
         .then(function () {
           if (lastNotifyError) { lastNotifyError = ''; refreshNotifyStatus(); }
@@ -735,19 +989,136 @@
 
   setInterval(checkReminders, CHECK_EVERY_MS);
   // Phones slow down timers in background tabs, so also check whenever you come back.
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { checkReminders(); refreshNotifyStatus(); }
-  });
-  window.addEventListener('focus', function () { checkReminders(); refreshNotifyStatus(); });
+  function onResume() {
+    checkReminders();
+    refreshNotifyStatus();
+    scheduleNativeSync();
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) onResume(); });
+  window.addEventListener('focus', onResume);
   window.addEventListener('pageshow', checkReminders);
 
   // Another tab changed the tasks: show the latest.
   window.addEventListener('storage', function (e) {
-    if (e.key === STORAGE_KEY) {
+    if (e.key === STORAGE_KEY && booted) {
       tasks = loadTasks();
       renderAll();
     }
   });
+
+  // ---------- Android app: phone alarms for reminders ----------
+  // Every pending reminder is registered with the phone's alarm system, so it fires even when the
+  // app is completely closed (and again after a reboot). This function makes the phone's list match
+  // the tasks exactly: new and changed reminders are scheduled, removed / completed / deleted ones are cancelled.
+  var channelPromise = null;
+  var syncTimer = null;
+  var syncRunning = false;
+  var syncAgain = false;
+
+  function ensureChannel() {
+    if (!LN) return Promise.resolve(false);
+    if (!channelPromise) {
+      channelPromise = LN.createChannel({
+        id: CHANNEL_ID,
+        name: 'Task reminders',
+        description: 'Reminders for your tasks',
+        importance: 4,
+        visibility: 1,
+        vibration: true
+      }).then(function () { return true; }, function () { return false; });
+    }
+    return channelPromise;
+  }
+
+  function exactAlarmsAllowed() {
+    return LN.checkExactNotificationSetting().then(
+      function (r) { return !r || r.exact_alarm !== 'denied'; },
+      function () { return true; }
+    );
+  }
+
+  function nativeBody(task) {
+    var body = reminderLabel(task);
+    if (task.description) body += ' · ' + firstLine(task.description, 100);
+    return body;
+  }
+
+  function buildNativeNotification(task, due, key, channelOk, exactOk) {
+    var n = {
+      id: task.nid,
+      title: task.text,
+      body: nativeBody(task),
+      schedule: { at: new Date(due), allowWhileIdle: true },
+      smallIcon: 'ic_stat_todo',
+      iconColor: '#3B6CF6',
+      extra: { key: key, taskId: task.id },
+      isExactNotification: exactOk
+    };
+    if (channelOk) n.channelId = CHANNEL_ID;
+    if (task.description) n.largeBody = task.description;
+    return n;
+  }
+
+  function scheduleNativeSync() {
+    if (!LN || !booted) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(runNativeSync, 150);
+  }
+
+  function runNativeSync() {
+    if (syncRunning) { syncAgain = true; return; }
+    syncRunning = true;
+    var failure = null;
+    nativeSync().catch(function (e) { failure = e; }).then(function () {
+      syncRunning = false;
+      if (failure) {
+        lastNotifyError = 'could not set the phone alarms (' + errText(failure) + ')';
+        refreshNotifyStatus();
+      } else if (lastNotifyError.indexOf('phone alarms') !== -1) {
+        lastNotifyError = '';
+        refreshNotifyStatus();
+      }
+      if (syncAgain) { syncAgain = false; runNativeSync(); }
+    });
+  }
+
+  function nativeSync() {
+    return LN.checkPermissions().then(function (perm) {
+      // Never ask for permission from here: that only happens when you press "Enable notifications".
+      if (!perm || perm.display !== 'granted') return null;
+      return Promise.all([ensureChannel(), exactAlarmsAllowed(), LN.getPending()]).then(function (r) {
+        var channelOk = r[0];
+        var exactOk = r[1];
+        var pending = (r[2] && r[2].notifications) || [];
+        var now = Date.now();
+
+        var desired = {};
+        var list = [];
+        tasks.forEach(function (t) {
+          if (!t.reminder || t.done || t.notified) return;
+          var due = reminderMs(t.reminder);
+          if (isNaN(due) || due <= now + 2000) return;
+          var key = [t.id, t.reminder, t.text, t.description].join('|');
+          desired[t.nid] = key;
+          list.push(buildNativeNotification(t, due, key, channelOk, exactOk));
+        });
+
+        var pendingKeys = {};
+        var cancelList = [];
+        pending.forEach(function (n) {
+          pendingKeys[n.id] = n.extra && n.extra.key;
+          if (n.id === TEST_NOTIFICATION_ID) return;
+          if (!(n.id in desired) || desired[n.id] !== pendingKeys[n.id]) cancelList.push({ id: n.id });
+        });
+        var scheduleList = list.filter(function (n) { return pendingKeys[n.id] !== n.extra.key; });
+
+        var step = cancelList.length ? LN.cancel({ notifications: cancelList }) : Promise.resolve();
+        return step.then(function () {
+          return scheduleList.length ? LN.schedule({ notifications: scheduleList }) : null;
+        });
+      });
+    });
+  }
 
   // ---------- Notifications: what the app can really do ----------
   function notificationsSupported() {
@@ -761,7 +1132,7 @@
       .catch(function () { return null; });
   }
 
-  // Shows a system notification. Phones only allow this through the service worker,
+  // Web: shows a system notification. Phones only allow this through the service worker,
   // so that is tried first; the plain page API is the fallback (desktop browsers).
   function showSystemNotification(title, body, tag) {
     var options = { body: body, icon: 'icon-192.png', tag: tag }; // same tag = replaces, never duplicates
@@ -773,7 +1144,7 @@
     });
   }
 
-  function computeNotifyStatus() {
+  function computeWebNotifyStatus() {
     if (!notificationsSupported()) {
       return Promise.resolve({ state: 'unsupported', text: 'Notifications are not supported in this browser. Reminders will only appear inside the app while it is open.' });
     }
@@ -806,7 +1177,7 @@
         return {
           state: 'enabled',
           action: 'test',
-          text: 'Notifications are allowed and ready. They can appear while the app is open or running in the background. A fully closed app cannot send them.'
+          text: 'Notifications are allowed and ready. They can appear while the app is open or running in the background. A fully closed web app cannot send them; the Android app can.'
         };
       }
       return {
@@ -817,6 +1188,64 @@
     });
   }
 
+  // Android app: status from the phone's real permission and alarm settings.
+  function computeNativeNotifyStatus() {
+    return LN.checkPermissions().then(function (perm) {
+      var display = perm && perm.display;
+      if (display === 'denied') {
+        return {
+          state: 'blocked',
+          text: 'Notifications are blocked for this app, so reminders cannot alert you. Open your phone’s Settings → Apps → To-Do → Notifications and turn them on, then come back.'
+        };
+      }
+      if (display !== 'granted') {
+        return {
+          state: 'needs-permission',
+          action: 'enable',
+          text: 'Notifications are off. Press the button and allow notifications so reminders can alert you, even when the app is closed.'
+        };
+      }
+      if (lastNotifyError) {
+        return {
+          state: 'error',
+          action: 'test',
+          text: 'Notifications are allowed, but there was a problem: ' + lastNotifyError + '. Reminders still appear inside the app.'
+        };
+      }
+      return LN.checkExactNotificationSetting().then(
+        function (r) { return !r || r.exact_alarm !== 'denied'; },
+        function () { return true; }
+      ).then(function (exactOk) {
+        if (!exactOk) {
+          return {
+            state: 'limited',
+            action: 'exact',
+            text: 'Notifications are allowed, but “Alarms & reminders” is off for this app, so reminders can arrive late. Allow it for on-time reminders.'
+          };
+        }
+        return {
+          state: 'enabled',
+          action: 'test',
+          text: 'Notifications are on. Reminders will alert you even when the app is closed.'
+        };
+      });
+    }).catch(function (e) {
+      return { state: 'error', text: 'Could not check notifications on this phone (' + errText(e) + '). Reminders still appear inside the app.' };
+    });
+  }
+
+  function computeNotifyStatus() {
+    return isNativeApp ? computeNativeNotifyStatus() : computeWebNotifyStatus();
+  }
+
+  function addNotifyButton(label, handler) {
+    var b = el('button', 'notify-btn');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    notifyBar.appendChild(b);
+  }
+
   function renderNotifyBar(status) {
     notifyBar.textContent = '';
     notifyBar.dataset.state = status.state;
@@ -825,19 +1254,9 @@
     msg.textContent = status.text;
     notifyBar.appendChild(msg);
 
-    if (status.action === 'enable') {
-      var enable = el('button', 'notify-btn');
-      enable.type = 'button';
-      enable.textContent = 'Enable notifications';
-      enable.addEventListener('click', requestNotificationPermission);
-      notifyBar.appendChild(enable);
-    } else if (status.action === 'test') {
-      var test = el('button', 'notify-btn');
-      test.type = 'button';
-      test.textContent = 'Send test notification';
-      test.addEventListener('click', sendTestNotification);
-      notifyBar.appendChild(test);
-    }
+    if (status.action === 'enable') addNotifyButton('Enable notifications', requestNotificationPermission);
+    else if (status.action === 'exact') addNotifyButton('Allow on-time reminders', allowExactAlarms);
+    else if (status.action === 'test') addNotifyButton('Send test notification', sendTestNotification);
   }
 
   function refreshNotifyStatus() {
@@ -846,6 +1265,16 @@
 
   // Only runs when you press the button. The app never asks on its own.
   function requestNotificationPermission() {
+    if (isNativeApp) {
+      LN.requestPermissions().then(function () {
+        scheduleNativeSync();
+        return refreshNotifyStatus();
+      }, function (e) {
+        lastNotifyError = errText(e);
+        return refreshNotifyStatus();
+      });
+      return;
+    }
     if (!notificationsSupported()) { refreshNotifyStatus(); return; }
     try {
       Promise.resolve(Notification.requestPermission()).then(refreshNotifyStatus, refreshNotifyStatus);
@@ -855,7 +1284,40 @@
     }
   }
 
+  function allowExactAlarms() {
+    LN.changeExactNotificationSetting().then(function () {
+      scheduleNativeSync();
+      return refreshNotifyStatus();
+    }, function (e) {
+      lastNotifyError = errText(e);
+      return refreshNotifyStatus();
+    });
+  }
+
   function sendTestNotification() {
+    if (isNativeApp) {
+      Promise.all([ensureChannel(), exactAlarmsAllowed()]).then(function (r) {
+        var n = {
+          id: TEST_NOTIFICATION_ID,
+          title: 'Test notification',
+          body: 'If you can see this, reminders can reach you.',
+          schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
+          smallIcon: 'ic_stat_todo',
+          iconColor: '#3B6CF6',
+          isExactNotification: r[1]
+        };
+        if (r[0]) n.channelId = CHANNEL_ID;
+        return LN.schedule({ notifications: [n] });
+      }).then(function () {
+        lastNotifyError = '';
+        addBanner('A test notification will appear in a few seconds. If nothing appears, check this app’s notification settings on your phone.');
+        return refreshNotifyStatus();
+      }).catch(function (e) {
+        lastNotifyError = errText(e);
+        return refreshNotifyStatus();
+      });
+      return;
+    }
     showSystemNotification('Test notification', 'If you can see this, notifications work on this device.', 'todo-test')
       .then(function () {
         lastNotifyError = '';
@@ -868,8 +1330,8 @@
       });
   }
 
-  // Keep the status line right if you change the permission in browser settings.
-  if (navigator.permissions && navigator.permissions.query) {
+  // Web: keep the status line right if you change the permission in browser settings.
+  if (!isNativeApp && navigator.permissions && navigator.permissions.query) {
     try {
       navigator.permissions.query({ name: 'notifications' }).then(function (status) {
         status.onchange = refreshNotifyStatus;
@@ -877,8 +1339,87 @@
     } catch (e) { /* ignore */ }
   }
 
-  // ---------- Offline support ----------
-  if ('serviceWorker' in navigator) {
+  // ---------- Backup and restore ----------
+  var backupCopy = document.getElementById('backup-copy');
+  var backupText = document.getElementById('backup-text');
+  var backupRestore = document.getElementById('backup-restore');
+  var backupMsg = document.getElementById('backup-msg');
+  var backupConfirm = document.getElementById('backup-confirm');
+  var backupConfirmText = document.getElementById('backup-confirm-text');
+  var backupConfirmYes = document.getElementById('backup-confirm-yes');
+  var backupConfirmNo = document.getElementById('backup-confirm-no');
+  var pendingRestore = null;
+
+  function setBackupMessage(message, isError) {
+    backupMsg.textContent = message;
+    backupMsg.classList.toggle('is-error', !!isError);
+  }
+
+  function makeBackupText() {
+    return JSON.stringify({ app: 'todo-checklist', version: 2, exportedAt: new Date().toISOString(), tasks: tasks });
+  }
+
+  if (backupCopy) {
+    backupCopy.addEventListener('click', function () {
+      var text = makeBackupText();
+      function fallback() {
+        backupText.value = text;
+        backupText.focus();
+        backupText.select();
+        setBackupMessage('Could not copy automatically. The backup is in the box below: select it all and copy it.', true);
+      }
+      try {
+        navigator.clipboard.writeText(text).then(function () {
+          setBackupMessage('Backup copied (' + tasks.length + ' tasks). Paste it somewhere safe, or into the other app to move your tasks.', false);
+        }, fallback);
+      } catch (e) {
+        fallback();
+      }
+    });
+
+    backupRestore.addEventListener('click', function () {
+      var raw = backupText.value.trim();
+      pendingRestore = null;
+      backupConfirm.hidden = true;
+      if (!raw) { setBackupMessage('Paste a backup into the box first.', true); return; }
+
+      var data;
+      try { data = JSON.parse(raw); } catch (e) { setBackupMessage('That is not a valid backup. Paste the whole text from “Copy backup”.', true); return; }
+      if (data && !Array.isArray(data) && Array.isArray(data.tasks)) data = data.tasks;
+      if (!Array.isArray(data)) { setBackupMessage('That is not a valid backup. Paste the whole text from “Copy backup”.', true); return; }
+
+      var restored = normalizeTasks(data);
+      if (!restored.length && data.length) { setBackupMessage('No usable tasks were found in that backup.', true); return; }
+      pendingRestore = restored;
+      backupConfirmText.textContent = 'Replace your ' + tasks.length + ' current tasks with the ' + restored.length + ' tasks in this backup?';
+      backupConfirm.hidden = false;
+      setBackupMessage('', false);
+    });
+
+    backupConfirmNo.addEventListener('click', function () {
+      pendingRestore = null;
+      backupConfirm.hidden = true;
+    });
+
+    backupConfirmYes.addEventListener('click', function () {
+      if (!pendingRestore) return;
+      var now = Date.now();
+      // Reminders that already passed were handled before the backup was made: do not announce them again.
+      pendingRestore.forEach(function (t) {
+        if (t.reminder && reminderMs(t.reminder) <= now) t.notified = true;
+      });
+      tasks = pendingRestore;
+      pendingRestore = null;
+      backupConfirm.hidden = true;
+      backupText.value = '';
+      saveTasks();
+      renderAll();
+      setBackupMessage('Restored ' + tasks.length + ' tasks.', false);
+    });
+  }
+
+  // ---------- Offline support (web only) ----------
+  if (!isNativeApp && 'serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').then(function () {
         return navigator.serviceWorker.ready;
@@ -889,11 +1430,38 @@
   }
 
   // ---------- Start ----------
-  if (!canSort) document.body.classList.add('no-sort'); // reordering file missing: hide the grips
-  tasks = loadTasks();
-  if (needsMigrationSave && tasks.length) saveTasks(); // stores the added fields for older tasks
-  renderDraftControls();
-  renderAll();
-  refreshNotifyStatus();
-  checkReminders();
+  // Android app: if the app's own storage was ever emptied but the native copy is still there, restore it first.
+  function restoreFromNativeStore() {
+    if (!Prefs) return Promise.resolve();
+    var timeout = new Promise(function (resolve) { setTimeout(resolve, 2000); });
+    var restore = Prefs.get({ key: STORAGE_KEY }).then(function (r) {
+      var existing = null;
+      try { existing = localStorage.getItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+      if (!existing && r && r.value) {
+        try { localStorage.setItem(STORAGE_KEY, r.value); } catch (e) { /* ignore */ }
+      }
+    }).catch(function () { /* start with what is in localStorage */ });
+    return Promise.race([restore, timeout]);
+  }
+
+  function start() {
+    if (!canSort) document.body.classList.add('no-sort'); // reordering file missing: hide the grips
+    if (nativeTips) nativeTips.hidden = !isNativeApp;
+    var webNote = document.getElementById('web-note');
+    if (webNote) webNote.hidden = isNativeApp;
+    renderedToday = todayString();
+    tasks = loadTasks();
+    if (needsMigrationSave && tasks.length) saveTasks(); // stores the added fields for older tasks
+    booted = true;
+    renderDraftControls();
+    renderAll();
+    refreshNotifyStatus();
+    checkReminders();
+    scheduleNativeSync();
+    if (LN) ensureChannel();
+  }
+
+  renderedToday = todayString();
+  if (isNativeApp) restoreFromNativeStore().then(start, start);
+  else start();
 })();

@@ -355,3 +355,66 @@ body.no-sort .drag-handle { display: none; }
 @media (max-width: 480px) {
   .add-options { flex-direction: column; align-items: flex-start; }
 }
+
+/* ---------- Descriptions ---------- */
+.desc-input, .desc-editor textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.desc-input[hidden] { display: none; }
+.task-main { min-width: 0; }
+.task-desc {
+  font-size: 0.88rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 2px 0 4px;
+  cursor: text;
+}
+.task.done .task-desc { opacity: 0.7; }
+.desc-editor { margin-top: 6px; }
+.desc-actions { display: flex; gap: 8px; margin-top: 6px; }
+.desc-save, .desc-cancel {
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.desc-save { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pill-button { background: none; font: inherit; font-size: 0.85rem; }
+.pill-button.is-set { border-style: solid; color: var(--text); }
+button.pill:focus-visible, .desc-input:focus-visible, .desc-editor textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* ---------- Anytime segments ---------- */
+.floating { margin-top: 20px; }
+.floating.is-empty { margin-top: 4px; }
+.floating.is-empty .day-title { display: none; }
+.floating-list { min-height: 8px; }
+.floating.is-empty .floating-list { min-height: 8px; }
+body.is-dragging .floating.is-empty { margin-top: 12px; }
+body.is-dragging .floating.is-empty .day-title { display: flex; }
+body.is-dragging .floating-list {
+  min-height: 44px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 2px;
+}
+.seg-title { color: var(--muted); }
+
+/* ---------- Backup ---------- */
+.backup { margin-top: 20px; font-size: 0.9rem; }
+.backup summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+.backup-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.backup-msg { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; }
+.backup-msg.is-error { color: var(--red); }
+.backup .banner { margin-top: 8px; flex-wrap: wrap; }

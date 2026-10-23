@@ -28,6 +28,7 @@
       <input id="task-input" type="text" placeholder="Add a task…" maxlength="200" aria-label="New task">
       <button type="submit" class="add-btn">Add</button>
     </div>
+    <textarea id="new-desc" class="desc-input" rows="3" maxlength="1000" placeholder="Description (optional)" aria-label="New task description" hidden></textarea>
     <div class="add-options">
       <!-- Date and reminder buttons are drawn by script.js. Both are optional. -->
       <span id="draft-pills" class="pills"></span>
@@ -44,12 +45,34 @@
   <p id="empty" class="empty" hidden>No tasks yet. Add your first one above.</p>
 
   <p class="note">
-    Tasks without a date stay at the top under Anytime. Drag the grip on the left of a task to
-    reorder it within its group. Tap a task's name to edit it. Tasks are saved in this browser on
-    this device only, and clearing your browser data erases them. Reminders show while the app is
-    open or running in the background. A fully closed app cannot alert you; a reminder you missed
-    appears the next time you open it.
+    Tasks without a date sit under Anytime. Drag the grip on the left of an Anytime task to put it
+    above, between or below the date groups; dated tasks reorder within their own day. Tap a task's
+    name or description to edit it.
+    <span id="web-note">Tasks are saved in this browser on this device only, and clearing your browser data
+    erases them. A fully closed web app cannot alert you; the Android app can.</span>
   </p>
+
+  <p id="native-tips" class="note" hidden>
+    Reminders are scheduled with your phone's alarm system, so they arrive even when the app is closed.
+    If a reminder ever does not show up, open Settings &rarr; Apps &rarr; To-Do &rarr; Battery and choose
+    &ldquo;Unrestricted&rdquo;, since some phone brands stop apps from alerting you.
+  </p>
+
+  <details class="backup">
+    <summary>Backup and restore</summary>
+    <p class="note">Copy your tasks as text to keep them safe or to move them to another app or phone, and paste them back here to restore.</p>
+    <div class="backup-row">
+      <button type="button" id="backup-copy" class="notify-btn">Copy backup</button>
+      <button type="button" id="backup-restore" class="notify-btn">Restore from pasted backup</button>
+    </div>
+    <textarea id="backup-text" class="desc-input" rows="4" placeholder="Paste a backup here to restore" aria-label="Backup text"></textarea>
+    <div id="backup-confirm" class="banner warn" hidden>
+      <span id="backup-confirm-text"></span>
+      <button type="button" id="backup-confirm-yes">Replace</button>
+      <button type="button" id="backup-confirm-no">Cancel</button>
+    </div>
+    <p id="backup-msg" class="backup-msg" aria-live="polite"></p>
+  </details>
 </main>
 
 <script src="sortable.min.js"></script>

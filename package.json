@@ -1,0 +1,16 @@
+{
+  "name": "todo-checklist",
+  "version": "1.0.0",
+  "private": true,
+  "description": "To-Do Checklist: web app plus Android app (Capacitor). Only the Android build uses these dependencies; the web app needs none.",
+  "scripts": {
+    "android:prepare": "node scripts/build-android.js"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/preferences": "8.0.1"
+  }
+}

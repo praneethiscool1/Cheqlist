@@ -1,0 +1,14 @@
+{
+  "appId": "io.github.praneethiscool1.todo",
+  "appName": "To-Do",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_todo",
+      "iconColor": "#3B6CF6"
+    }
+  }
+}
