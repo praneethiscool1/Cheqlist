@@ -1,6 +1,6 @@
 {
   "appId": "io.github.praneethiscool1.todo",
-  "appName": "To-Do",
+  "appName": "Cheqlist",
   "webDir": "www",
   "android": {
     "allowMixedContent": false

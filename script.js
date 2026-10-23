@@ -31,7 +31,6 @@
   var emptyEl = document.getElementById('empty');
   var remindersEl = document.getElementById('reminders');
   var notifyBar = document.getElementById('notify-bar');
-  var nativeTips = document.getElementById('native-tips');
 
   // ---------- Are we inside the Android app? ----------
   var LN = null;    // native scheduled notifications
@@ -1223,7 +1222,7 @@
       if (display === 'denied') {
         return {
           state: 'blocked',
-          text: 'Notifications are blocked for this app, so reminders cannot alert you. Open your phone’s Settings → Apps → To-Do → Notifications and turn them on, then come back.'
+          text: 'Notifications are blocked for this app, so reminders cannot alert you. Open your phone’s Settings → Apps → Cheqlist → Notifications and turn them on, then come back.'
         };
       }
       if (display !== 'granted') {
@@ -1367,6 +1366,58 @@
     } catch (e) { /* ignore */ }
   }
 
+  // ---------- Light / dark theme ----------
+  // 'auto' follows the phone's setting; 'light' and 'dark' override it. The choice is remembered.
+  var THEME_KEY = 'todo-theme';
+  var SystemBars = null;
+  try { if (isNativeApp) SystemBars = window.Capacitor.registerPlugin('SystemBars'); } catch (e) { SystemBars = null; }
+  var themeChoice = 'auto';
+  var themeMedia = null;
+  try { themeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null; } catch (e) { themeMedia = null; }
+
+  function effectiveTheme() {
+    if (themeChoice === 'light' || themeChoice === 'dark') return themeChoice;
+    return themeMedia && themeMedia.matches ? 'dark' : 'light';
+  }
+
+  function applyTheme() {
+    var root = document.documentElement;
+    if (themeChoice === 'auto') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', themeChoice);
+
+    var dark = effectiveTheme() === 'dark';
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', dark ? '#0b0f1c' : '#eef1fa');
+    // Android app: make the status-bar icons readable on the chosen background.
+    if (SystemBars) {
+      try { SystemBars.setStyle({ style: dark ? 'DARK' : 'LIGHT' }).catch(function () { /* cosmetic only */ }); } catch (e) { /* ignore */ }
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('#theme-switch button'), function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-theme-choice') === themeChoice ? 'true' : 'false');
+    });
+  }
+
+  function setTheme(choice) {
+    themeChoice = (choice === 'light' || choice === 'dark') ? choice : 'auto';
+    try { localStorage.setItem(THEME_KEY, themeChoice); } catch (e) { /* the choice just will not be remembered */ }
+    if (Prefs) { try { Prefs.set({ key: THEME_KEY, value: themeChoice }).catch(function () { /* ignore */ }); } catch (e) { /* ignore */ } }
+    applyTheme();
+  }
+
+  function loadTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch (e) { /* ignore */ }
+    themeChoice = (saved === 'light' || saved === 'dark') ? saved : 'auto';
+    applyTheme();
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('#theme-switch button'), function (b) {
+    b.addEventListener('click', function () { setTheme(b.getAttribute('data-theme-choice')); });
+  });
+  if (themeMedia && themeMedia.addEventListener) {
+    themeMedia.addEventListener('change', function () { if (themeChoice === 'auto') applyTheme(); });
+  }
+
   // ---------- Backup and restore ----------
   var backupCopy = document.getElementById('backup-copy');
   var backupText = document.getElementById('backup-text');
@@ -1462,7 +1513,12 @@
   function restoreFromNativeStore() {
     if (!Prefs) return Promise.resolve();
     var timeout = new Promise(function (resolve) { setTimeout(resolve, 2000); });
-    var restore = Prefs.get({ key: STORAGE_KEY }).then(function (r) {
+    var restoreTheme = Prefs.get({ key: THEME_KEY }).then(function (r) {
+      var existing = null;
+      try { existing = localStorage.getItem(THEME_KEY); } catch (e) { /* ignore */ }
+      if (!existing && r && r.value) { try { localStorage.setItem(THEME_KEY, r.value); } catch (e) { /* ignore */ } }
+    }).catch(function () { /* default theme */ });
+    var restore = restoreTheme.then(function () { return Prefs.get({ key: STORAGE_KEY }); }).then(function (r) {
       var existing = null;
       try { existing = localStorage.getItem(STORAGE_KEY); } catch (e) { /* ignore */ }
       if (!existing && r && r.value) {
@@ -1474,9 +1530,7 @@
 
   function start() {
     if (!canSort) document.body.classList.add('no-sort'); // reordering file missing: hide the grips
-    if (nativeTips) nativeTips.hidden = !isNativeApp;
-    var webNote = document.getElementById('web-note');
-    if (webNote) webNote.hidden = isNativeApp;
+    loadTheme();
     renderedToday = todayString();
     tasks = loadTasks();
     if (needsMigrationSave && tasks.length) saveTasks(); // stores the added fields for older tasks

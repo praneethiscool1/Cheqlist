@@ -126,7 +126,51 @@ summary:focus-visible {
 }
 
 /* ---------- Header: today's weekday is the title ---------- */
-.hero { padding: 10px 4px 20px; }
+.hero { padding: 10px 4px 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.hero-text { min-width: 0; }
+
+/* Auto / Light / Dark switch */
+.theme-switch {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-top: 6px;
+  background: var(--sheet);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.theme-switch button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s, color 0.2s, transform 0.2s var(--spring);
+}
+.theme-switch button::before {
+  content: "";
+  width: 19px;
+  height: 19px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+.theme-switch button:active { transform: scale(0.88); }
+.theme-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.theme-switch [data-theme-choice="auto"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2a7 7 0 0 1 0 14V5Z'/%3E%3C/svg%3E");
+}
+.theme-switch [data-theme-choice="light"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6'/%3E%3C/svg%3E");
+}
+.theme-switch [data-theme-choice="dark"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z'/%3E%3C/svg%3E");
+}
 .hero-day {
   margin: 0;
   font-size: clamp(2.8rem, 15vw, 4rem);

@@ -1,6 +1,6 @@
 # Building the Android app
 
-The Android app is the same To-Do app wrapped as a real Android app (Capacitor). It keeps its own storage,
+The Android app is the same Cheqlist app wrapped as a real Android app (Capacitor). It keeps its own storage,
 so clearing Chrome's data does not touch it, and it schedules reminders with the phone's alarm system,
 so they arrive even when the app is closed.
 
@@ -13,7 +13,7 @@ so they arrive even when the app is closed.
    "Add file > Create new file" and type the path `.github/workflows/build-android.yml`.)
 2. Repo > Settings > Actions > General > Workflow permissions: choose "Read and write permissions", Save.
 3. Repo > Actions > "Build Android app" > Run workflow. Takes about 5 to 10 minutes.
-4. When it finishes, open the repo's Releases page, and download `todo-checklist.apk` on your phone.
+4. When it finishes, open the repo's Releases page, and download `cheqlist.apk` on your phone.
    Open it; Android will ask to allow installs from your browser or Files app. Allow it, install.
 5. Open the app and press "Enable notifications". Allow notifications (and "Alarms & reminders" if asked).
 
@@ -35,8 +35,8 @@ one and keeps your tasks. This only works if every build is signed with the same
 - Do this BEFORE you rely on the app. Switching keys later means uninstalling the app (export a backup first).
 
 ## If reminders do not arrive
-Settings > Apps > To-Do > Battery > Unrestricted (some brands, e.g. Xiaomi, Oppo, Vivo, OnePlus, also have
-an "Autostart" switch). Check Settings > Apps > To-Do > Notifications is on.
+Settings > Apps > Cheqlist > Battery > Unrestricted (some brands, e.g. Xiaomi, Oppo, Vivo, OnePlus, also have
+an "Autostart" switch). Check Settings > Apps > Cheqlist > Notifications is on.
 
 ## What is and is not verified
 Verified here: the app logic against mocked phone plugins, the real drag-and-drop in a browser, and that the

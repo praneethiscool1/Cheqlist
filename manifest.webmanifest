@@ -1,7 +1,7 @@
 {
-  "name": "To-Do Checklist",
-  "short_name": "To-Do",
-  "description": "A simple daily to-do checklist with manual priority colors and optional reminders.",
+  "name": "Cheqlist",
+  "short_name": "Cheqlist",
+  "description": "A simple daily checklist with manual priority colors and optional reminders.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

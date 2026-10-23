@@ -3,14 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>To-Do Checklist</title>
+  <title>Cheqlist</title>
+  <script>
+    /* Apply the saved light/dark choice before the page paints, so there is no flash. */
+    try { var t = localStorage.getItem('todo-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  </script>
 
   <!-- Makes the page installable as an app -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#3b6cf6">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="To-Do">
+  <meta name="apple-mobile-web-app-title" content="Cheqlist">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -20,9 +24,16 @@
 <body>
 <main class="app">
   <header class="hero">
-    <p class="sr-only">To-Do Checklist</p>
-    <h1 id="hero-day" class="hero-day">To-Do</h1>
-    <p id="hero-date" class="hero-date"></p>
+    <div class="hero-text">
+      <p class="sr-only">Cheqlist</p>
+      <h1 id="hero-day" class="hero-day">Cheqlist</h1>
+      <p id="hero-date" class="hero-date"></p>
+    </div>
+    <div id="theme-switch" class="theme-switch" role="group" aria-label="Colour theme">
+      <button type="button" data-theme-choice="auto" title="Match my phone" aria-label="Match my phone" aria-pressed="true"></button>
+      <button type="button" data-theme-choice="light" title="Light" aria-label="Light" aria-pressed="false"></button>
+      <button type="button" data-theme-choice="dark" title="Dark" aria-label="Dark" aria-pressed="false"></button>
+    </div>
   </header>
 
   <div id="reminders" class="reminders" aria-live="polite"></div>
@@ -58,20 +69,6 @@
     <p class="empty-title">Nothing planned yet</p>
     <p class="empty-text">Type a task above and tap Add. Give it a date or a reminder if it needs one.</p>
   </div>
-
-  <p class="note">
-    Tasks without a date sit under Anytime. Drag the grip on the left of an Anytime task to put it
-    above, between or below the date groups; dated tasks reorder within their own day. Tap a task's
-    name or description to edit it.
-    <span id="web-note">Tasks are saved in this browser on this device only, and clearing your browser data
-    erases them. A fully closed web app cannot alert you; the Android app can.</span>
-  </p>
-
-  <p id="native-tips" class="note" hidden>
-    Reminders are scheduled with your phone's alarm system, so they arrive even when the app is closed.
-    If a reminder ever does not show up, open Settings &rarr; Apps &rarr; To-Do &rarr; Battery and choose
-    &ldquo;Unrestricted&rdquo;, since some phone brands stop apps from alerting you.
-  </p>
 
   <details class="backup">
     <summary>Backup and restore</summary>
