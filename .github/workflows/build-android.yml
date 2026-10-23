@@ -1,0 +1,94 @@
+# Builds the Android app (APK) and publishes it as a GitHub Release.
+# Run it from the repo's Actions tab: "Build Android app" -> "Run workflow".
+#
+# Optional but recommended: add these four repository secrets (Settings -> Secrets and variables -> Actions)
+# so every build is signed with YOUR OWN private key. Without them the build uses the convenience key
+# stored in android-res/todo-fallback.keystore, which is public.
+#   ANDROID_KEYSTORE_BASE64   the keystore file, base64 encoded
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Never change the signing key after you start using the app: Android refuses to update an app signed
+# with a different key, and the only way forward would be to uninstall (export a backup first).
+name: Build Android app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare Android project
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.${{ github.run_number }}
+        run: node scripts/build-android.js
+
+      - name: Accept Android SDK licenses and install platform
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Choose signing key
+        id: key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ] && [ -n "$KS_ALIAS" ] && [ -n "$KEY_PASS" ]; then
+            echo "$KS_B64" | base64 -d > android/todo.keystore
+            echo "TODO_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "TODO_KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+            echo "TODO_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
+            echo "Signing with your own key from repository secrets."
+          else
+            cp android-res/todo-fallback.keystore android/todo.keystore
+            echo "TODO_KEYSTORE_PASSWORD=todo-fallback" >> "$GITHUB_ENV"
+            echo "TODO_KEY_ALIAS=todo" >> "$GITHUB_ENV"
+            echo "TODO_KEY_PASSWORD=todo-fallback" >> "$GITHUB_ENV"
+            echo "::warning::No signing secrets found, using the public fallback key. Fine for personal use; add the four secrets for a private key."
+          fi
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify the APK is signed
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+          cp "$APK" todo-checklist.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: todo-checklist-apk
+          path: todo-checklist.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v${{ github.run_number }}" todo-checklist.apk \
+            --title "To-Do app 1.${{ github.run_number }}" \
+            --notes "Android app build ${{ github.run_number }}. Download todo-checklist.apk on your phone and open it to install or update."
