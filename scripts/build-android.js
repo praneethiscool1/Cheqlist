@@ -91,6 +91,16 @@ fs.readdirSync(resDst).forEach(function (d) {
 copyDir(resSrc, resDst);
 fs.rmSync(path.join(resDst, 'todo-fallback.keystore'), { force: true });
 
+// Window background: the strips behind the status and navigation bars. Match the app's paper colour
+// (light by day, dark at night) instead of Android's default grey.
+var stylesPath = path.join(resDst, 'values', 'styles.xml');
+var styles = read(stylesPath);
+if (styles.indexOf('window_bg') === -1) {
+  styles = mustReplace(styles, '<item name="android:background">@null</item>',
+    '<item name="android:background">@null</item>\n        <item name="android:windowBackground">@color/window_bg</item>', 'NoActionBar style item');
+  write(stylesPath, styles);
+}
+
 // Version: every workflow run gets a higher versionCode so each build installs over the last one.
 var versionCode = parseInt(process.env.VERSION_CODE || '1', 10);
 if (!(versionCode >= 1)) fail('VERSION_CODE must be a positive number');
