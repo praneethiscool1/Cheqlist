@@ -49,6 +49,9 @@ WEB_FILES.forEach(function (f) {
   fs.copyFileSync(path.join(root, f), path.join(www, f));
 });
 
+// Fonts folder (the font file and its licence).
+copyDir(path.join(root, 'fonts'), path.join(www, 'fonts'));
+
 var capRuntime = path.join(root, 'node_modules', '@capacitor', 'core', 'dist', 'capacitor.js');
 if (!fs.existsSync(capRuntime)) fail('run "npm ci" first (node_modules/@capacitor/core is missing)');
 fs.copyFileSync(capRuntime, path.join(www, 'capacitor.js'));
