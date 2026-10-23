@@ -19,7 +19,11 @@
 </head>
 <body>
 <main class="app">
-  <h1>To-Do Checklist</h1>
+  <header class="hero">
+    <p class="sr-only">To-Do Checklist</p>
+    <h1 id="hero-day" class="hero-day">To-Do</h1>
+    <p id="hero-date" class="hero-date"></p>
+  </header>
 
   <div id="reminders" class="reminders" aria-live="polite"></div>
 
@@ -42,7 +46,18 @@
   <div id="notify-bar" class="notify-bar" aria-live="polite"></div>
 
   <div id="task-list" class="days"></div>
-  <p id="empty" class="empty" hidden>No tasks yet. Add your first one above.</p>
+  <div id="empty" class="empty" hidden>
+    <svg viewBox="0 0 120 96" fill="none" aria-hidden="true">
+      <rect x="22" y="8" width="76" height="80" rx="14" fill="var(--sheet)" stroke="var(--line)" stroke-width="2"/>
+      <rect x="34" y="24" width="16" height="16" rx="5" stroke="var(--muted)" stroke-width="2.5" opacity="0.6"/>
+      <path d="M58 32h28" stroke="var(--muted)" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+      <rect x="34" y="52" width="16" height="16" rx="5" fill="var(--accent)"/>
+      <path d="M38 60.5l3.4 3.4 6-6.6" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M58 60h20" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <p class="empty-title">Nothing planned yet</p>
+    <p class="empty-text">Type a task above and tap Add. Give it a date or a reminder if it needs one.</p>
+  </div>
 
   <p class="note">
     Tasks without a date sit under Anytime. Drag the grip on the left of an Anytime task to put it

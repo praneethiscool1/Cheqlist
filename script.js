@@ -67,6 +67,7 @@
   var saveWarningShown = false;
   var canSort = typeof Sortable !== 'undefined';
   var booted = false;
+  var justAddedId = '';
 
   // The "new task" form keeps its choices here until you press Add.
   var draft = { date: '', reminder: '', color: null };
@@ -155,6 +156,22 @@
     if (ra !== rb) return ra - rb;
     if (ra === 1) return a < b ? -1 : 1;
     return a < b ? 1 : -1;
+  }
+
+  // ---------- Header: today's weekday and date ----------
+  var heroDay = document.getElementById('hero-day');
+  var heroDate = document.getElementById('hero-date');
+  function updateHero() {
+    var now = new Date();
+    if (heroDay) heroDay.textContent = now.toLocaleDateString([], { weekday: 'long' });
+    if (heroDate) heroDate.textContent = now.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  // Motion is skipped when the phone asks for reduced motion (and in environments without matchMedia).
+  function motionAllowed() {
+    try {
+      return !!(window.matchMedia && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (e) { return false; }
   }
 
   // ---------- Small helpers ----------
@@ -372,7 +389,7 @@
   // so tapping the pill opens the phone's own picker. An optional x button clears the value.
   function makePill(o) {
     var wrap = el('span', 'pill-wrap');
-    var pill = el('label', 'pill' + (o.set ? ' is-set' : '') + (o.overdue ? ' is-overdue' : ''));
+    var pill = el('label', 'pill kind-' + o.inputType + (o.set ? ' is-set' : '') + (o.overdue ? ' is-overdue' : ''));
     var text = el('span', 'pill-text');
     text.textContent = o.text;
     var input = el('input');
@@ -401,7 +418,7 @@
 
   // A plain pill-shaped button (used for "Add description").
   function makeButtonPill(text, onClick) {
-    var b = el('button', 'pill pill-button');
+    var b = el('button', 'pill pill-button kind-note');
     b.type = 'button';
     b.textContent = text;
     b.addEventListener('click', onClick);
@@ -525,6 +542,7 @@
     };
 
     tasks.unshift(task);
+    justAddedId = task.id;
     saveTasks();
 
     taskInput.value = '';
@@ -585,6 +603,7 @@
   function renderTask(task) {
     var li = el('li', 'task');
     li.dataset.id = task.id;
+    if (task.id === justAddedId) { li.classList.add('enter'); justAddedId = ''; }
 
     var handle = el('span', 'drag-handle');
     handle.title = 'Drag to reorder';
@@ -686,10 +705,18 @@
       paintRow();
     });
 
+    var removing = false;
     del.addEventListener('click', function () {
+      if (removing) return;
+      removing = true;
       tasks = tasks.filter(function (t) { return t.id !== task.id; });
       saveTasks();
-      renderAll();
+      if (!motionAllowed()) { renderAll(); return; }
+      // Slide the row out, then redraw. The task is already gone from the saved data.
+      li.style.maxHeight = li.offsetHeight + 'px';
+      void li.offsetHeight;
+      li.classList.add('leaving');
+      setTimeout(renderAll, 300);
     });
 
     // Tap the task name to edit it. Enter or tapping away saves; Escape cancels.
@@ -792,6 +819,7 @@
     sortables.forEach(function (s) { try { s.destroy(); } catch (e) { /* ignore */ } });
     sortables = [];
     renderedToday = todayString();
+    updateHero();
     listEl.textContent = '';
 
     var keys = datedKeys();

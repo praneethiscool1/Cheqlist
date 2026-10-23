@@ -2,7 +2,7 @@
 // It does NOT run reminders in the background. Reminders are still checked by the page itself.
 
 // If you change any app file, change this version number so phones pick up the new files.
-var CACHE_NAME = 'todo-checklist-v4';
+var CACHE_NAME = 'todo-checklist-v5';
 
 var APP_FILES = [
   './',
@@ -10,6 +10,7 @@ var APP_FILES = [
   './style.css',
   './script.js',
   './sortable.min.js',
+  './fonts/bricolage-grotesque-latin-wght-normal.woff2',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
