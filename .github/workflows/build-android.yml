@@ -1,5 +1,5 @@
 # Builds the Android app (APK) and publishes it as a GitHub Release.
-# Run it from the repo's Actions tab: "Build Android app" -> "Run workflow".
+# It runs by itself whenever you push changes to main (and you can still run it by hand from the Actions tab).
 #
 # Optional but recommended: add these four repository secrets (Settings -> Secrets and variables -> Actions)
 # so every build is signed with YOUR OWN private key. Without them the build uses the convenience key
@@ -14,6 +14,15 @@ name: Build Android app
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+
+# If you upload files in several commits, only the newest build is kept.
+concurrency:
+  group: android-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -78,17 +87,17 @@ jobs:
           APK=android/app/build/outputs/apk/release/app-release.apk
           test -f "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
-          cp "$APK" todo-checklist.apk
+          cp "$APK" cheqlist.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: todo-checklist-apk
-          path: todo-checklist.apk
+          name: cheqlist-apk
+          path: cheqlist.apk
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "android-v${{ github.run_number }}" todo-checklist.apk \
-            --title "To-Do app 1.${{ github.run_number }}" \
-            --notes "Android app build ${{ github.run_number }}. Download todo-checklist.apk on your phone and open it to install or update."
+          gh release create "android-v${{ github.run_number }}" cheqlist.apk \
+            --title "Cheqlist 1.${{ github.run_number }}" \
+            --notes "Android app build ${{ github.run_number }}. Download cheqlist.apk on your phone and open it to install or update."
