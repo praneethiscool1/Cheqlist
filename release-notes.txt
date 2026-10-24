@@ -1,3 +1,4 @@
-- Overdue: a task not ticked by 12:00 am after its date, or by its reminder time, is marked Overdue and you get a notification.
-- New tasks can only be dated today or later, and a reminder for today must be a time that is still ahead.
-- Notifications are now a simple switch (bell) in the top corner instead of the big panel.
+- New opening screen: the Cheqlist logo and name animate in before the app appears.
+- New "Developed by" section. Sections are now in alphabetical order.
+- The Updates section now shows the date of each update.
+- Tapping the notification bell after denying permission now asks again whenever Android allows it.

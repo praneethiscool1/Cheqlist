@@ -1285,7 +1285,7 @@
 
   function blockedMessage() {
     return isNativeApp
-      ? 'Notifications are blocked for Cheqlist. Open your phone\u2019s Settings \u2192 Apps \u2192 Cheqlist \u2192 Notifications and turn them on.'
+      ? 'Android will not show the permission box again, so it has to be turned on in your phone\u2019s Settings \u2192 Apps \u2192 Cheqlist \u2192 Notifications. Then come back and tap the bell.'
       : 'Notifications are blocked for this site. Allow them in your browser\u2019s site settings, then reload.';
   }
 
@@ -1303,8 +1303,9 @@
         if (!turnOff && isNativeApp) askExactAlarms();
         return notifyChanged();
       }
-      if (p === 'denied') { addBanner(blockedMessage(), 'warn'); return refreshNotifyStatus(); }
       if (p === 'unsupported') { addBanner('Notifications are not available in this browser. Alerts still appear inside the app.', 'warn'); return refreshNotifyStatus(); }
+      // Not asked yet, or denied before: always ask again. If the phone has stopped showing its permission box
+      // (it only allows that a couple of times), the answer comes back "denied" at once and we explain where to turn it on.
       return requestNotificationPermission();
     });
   }
@@ -1431,7 +1432,21 @@
           a.browser_download_url.indexOf(UPDATE_URL_PREFIX) === 0 &&
           a.browser_download_url.indexOf('/releases/download/') !== -1) asset = a.browser_download_url;
     });
-    return asset ? { build: parseInt(m[1], 10), url: asset, notes: typeof data.body === 'string' ? data.body : '' } : null;
+    return asset ? { build: parseInt(m[1], 10), url: asset, notes: typeof data.body === 'string' ? data.body : '', date: typeof data.published_at === 'string' ? data.published_at : '' } : null;
+  }
+
+  // "24 October 2026" in the phone's own time zone, from an ISO timestamp. '' when the value is not a real date.
+  function formatLongDate(iso) {
+    var d = new Date(iso);
+    if (typeof iso !== 'string' || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  function setDateLine(id, prefix, iso) {
+    var p = document.getElementById(id);
+    if (!p) return;
+    var text = formatLongDate(iso);
+    p.textContent = text ? prefix + text : '';
+    p.hidden = !text;
   }
 
   // Release notes are plain lines ("- something changed"). They are shown as text, never as HTML.
@@ -1451,6 +1466,7 @@
     var box = document.getElementById('update-new');
     if (!box) return;
     document.getElementById('update-new-title').textContent = 'Version 1.' + info.build + ' is available';
+    setDateLine('update-new-date', 'Released ', info.date);
     renderNotes(document.getElementById('notes-new'), info.notes);
     document.getElementById('update-download').href = info.url;
     box.hidden = false;
@@ -1645,11 +1661,15 @@
     var updatesEl = document.getElementById('updates');
     if (updatesEl && isNativeApp && window.APP_VERSION) {
       document.getElementById('app-version').textContent = 'Cheqlist ' + window.APP_VERSION;
+      setDateLine('app-date', 'Updated ', window.APP_BUILT_AT);
       renderNotes(document.getElementById('notes-current'), window.APP_NOTES);
       updatesEl.hidden = false;
     }
     checkForUpdate();
   }
+
+  // The opening screen hides itself with CSS; this only removes it from the page afterwards.
+  setTimeout(function () { var s = document.getElementById('splash'); if (s && s.parentNode) s.parentNode.removeChild(s); }, 2200);
 
   renderedToday = todayString();
   if (isNativeApp) restoreFromNativeStore().then(start, start);

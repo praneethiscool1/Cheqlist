@@ -802,3 +802,52 @@ a.btn-primary { display: inline-block; text-decoration: none; }
   .theme-switch button { width: 32px; height: 32px; }
   .task { padding-right: 6px; }
 }
+
+/* ---------- Opening screen ---------- */
+/* Pure CSS: it plays on every open and removes itself, so it can never block the app. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--paper);
+  animation: splashOut 0.45s ease 1.25s forwards;
+}
+.splash-mark { width: 84px; height: 84px; animation: splashPop 0.6s var(--spring) both; }
+.splash-tick { stroke-dasharray: 1; stroke-dashoffset: 1; animation: splashTick 0.45s var(--ease) 0.35s forwards; }
+.splash-word {
+  display: flex;
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+.splash-word span { display: inline-block; opacity: 0; animation: splashLetter 0.5s var(--ease) forwards; }
+.splash-word span:nth-child(1) { animation-delay: 0.45s; }
+.splash-word span:nth-child(2) { animation-delay: 0.50s; }
+.splash-word span:nth-child(3) { animation-delay: 0.55s; }
+.splash-word span:nth-child(4) { animation-delay: 0.60s; }
+.splash-word span:nth-child(5) { animation-delay: 0.65s; }
+.splash-word span:nth-child(6) { animation-delay: 0.70s; }
+.splash-word span:nth-child(7) { animation-delay: 0.75s; }
+.splash-word span:nth-child(8) { animation-delay: 0.80s; }
+@keyframes splashPop { from { opacity: 0; transform: scale(0.5) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes splashTick { to { stroke-dashoffset: 0; } }
+@keyframes splashLetter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes splashOut { to { opacity: 0; visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .splash { animation-duration: 0.3s; animation-delay: 0.9s; }
+  .splash-mark, .splash-word span { animation: splashFade 0.3s ease forwards; }
+  .splash-tick { animation: none; stroke-dashoffset: 0; }
+  @keyframes splashFade { from { opacity: 0; } to { opacity: 1; } }
+}
+
+/* ---------- Developed by ---------- */
+.credit { margin: 2px 0 6px; font-size: 1rem; font-weight: 600; }
+.credit-date { margin: 10px 0 6px; font-size: 0.9rem; color: var(--muted); }
+.ver-date { margin: -4px 0 12px; font-size: 0.85rem; color: var(--muted); }
+.ver-date[hidden] { display: none; }

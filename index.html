@@ -22,6 +22,13 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="splash" class="splash" aria-hidden="true">
+  <svg class="splash-mark" viewBox="0 0 64 64" fill="none">
+    <rect x="6" y="6" width="52" height="52" rx="16" fill="var(--accent)"/>
+    <path class="splash-tick" d="M19 33l9 9 17-19" stroke="var(--accent-ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+  </svg>
+  <div class="splash-word"><span>C</span><span>h</span><span>e</span><span>q</span><span>l</span><span>i</span><span>s</span><span>t</span></div>
+</div>
 <main class="app">
   <header class="hero">
     <p class="sr-only">Cheqlist</p>
@@ -88,17 +95,26 @@
     <p id="backup-msg" class="backup-msg" aria-live="polite"></p>
   </details>
 
+  <details class="backup about">
+    <summary>Developed by</summary>
+    <p class="credit">-creepysteve</p>
+    <p class="credit">-sonnet</p>
+    <p class="credit-date">Created on: 20th October 2026</p>
+  </details>
+
   <details id="updates" class="backup updates" hidden>
     <summary>Updates</summary>
     <div class="ver-row">
       <p id="app-version" class="ver-name"></p>
       <span class="ver-chip">Installed</span>
     </div>
+    <p id="app-date" class="ver-date" hidden></p>
     <p class="ver-label">What's new in this version</p>
     <ul id="notes-current" class="notes-list"></ul>
     <p id="update-msg" class="backup-msg" aria-live="polite"></p>
     <div id="update-new" class="confirm" hidden>
       <p id="update-new-title" class="confirm-text"></p>
+      <p id="update-new-date" class="ver-date" hidden></p>
       <ul id="notes-new" class="notes-list"></ul>
       <div class="confirm-actions">
         <a id="update-download" class="btn-primary" href="#">Download</a>
