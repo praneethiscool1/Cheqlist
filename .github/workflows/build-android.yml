@@ -100,4 +100,4 @@ jobs:
         run: |
           gh release create "android-v${{ github.run_number }}" cheqlist.apk \
             --title "Cheqlist 1.${{ github.run_number }}" \
-            --notes "Android app build ${{ github.run_number }}. Download cheqlist.apk on your phone and open it to install or update."
+            --notes-file release-notes.txt
