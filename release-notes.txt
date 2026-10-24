@@ -1,3 +1,2 @@
-- The weekday heading now fits any screen size and large system text.
-- Restoring a backup has a new confirm card, and it no longer stays on screen after you confirm.
-- New Updates section: see your version, what changed, and check for updates.
+- Check for updates works again (it stopped after the repository was renamed).
+- This section now shows what changed in each version.

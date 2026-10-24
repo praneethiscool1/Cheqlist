@@ -1436,8 +1436,11 @@
   // ---------- Android app: "update available" notice ----------
   // The app cannot install updates silently (Android requires you to tap Install), but it can tell you.
   // On open it asks GitHub (public information, no login or key) whether a newer build was released.
-  var UPDATE_REPO = 'praneethiscool1/Todo';
-  var UPDATE_URL_PREFIX = 'https://github.com/' + UPDATE_REPO + '/releases/download/';
+  var UPDATE_OWNER = 'praneethiscool1';
+  var UPDATE_REPO = UPDATE_OWNER + '/Cheqlist';
+  // Downloads are only accepted from this GitHub account's release pages. (Checking the account, not the
+  // repository name, means renaming the repository again does not break update checks.)
+  var UPDATE_URL_PREFIX = 'https://github.com/' + UPDATE_OWNER + '/';
   var UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
   var currentBuild = parseInt(window.APP_BUILD, 10) || 0;
 
@@ -1448,7 +1451,8 @@
     var asset = null;
     (data.assets || []).forEach(function (a) {
       if (!asset && a && typeof a.browser_download_url === 'string' && /\.apk$/.test(a.browser_download_url) &&
-          a.browser_download_url.indexOf(UPDATE_URL_PREFIX) === 0) asset = a.browser_download_url;
+          a.browser_download_url.indexOf(UPDATE_URL_PREFIX) === 0 &&
+          a.browser_download_url.indexOf('/releases/download/') !== -1) asset = a.browser_download_url;
     });
     return asset ? { build: parseInt(m[1], 10), url: asset, notes: typeof data.body === 'string' ? data.body : '' } : null;
   }
