@@ -56,11 +56,16 @@ var capRuntime = path.join(root, 'node_modules', '@capacitor', 'core', 'dist', '
 if (!fs.existsSync(capRuntime)) fail('run "npm ci" first (node_modules/@capacitor/core is missing)');
 fs.copyFileSync(capRuntime, path.join(www, 'capacitor.js'));
 
+// Tell the app which build it is, so it can notice when a newer one is released.
+var buildNumber = parseInt(process.env.VERSION_CODE || '1', 10) || 1;
+write(path.join(www, 'build-info.js'),
+  'window.APP_BUILD = ' + buildNumber + ';\nwindow.APP_VERSION = ' + JSON.stringify(process.env.VERSION_NAME || '1.0') + ';\n');
+
 var html = read(path.join(www, 'index.html'));
 // Without viewport-fit=cover, Android keeps the page out from under the status and navigation bars.
 html = mustReplace(html, ', viewport-fit=cover', '', 'viewport-fit=cover');
 // The Capacitor runtime must load before script.js so the app can see the native plugins.
-html = mustReplace(html, '<script src="script.js"></script>', '<script src="capacitor.js"></script>\n<script src="script.js"></script>', 'script.js tag');
+html = mustReplace(html, '<script src="script.js"></script>', '<script src="capacitor.js"></script>\n<script src="build-info.js"></script>\n<script src="script.js"></script>', 'script.js tag');
 write(path.join(www, 'index.html'), html);
 
 // ---------- 2. android project ----------
