@@ -745,9 +745,33 @@ body.no-sort .drag-handle { display: none; }
 .backup-msg.is-ok { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--ink); }
 .backup-msg.is-error { background: var(--danger-soft); color: var(--red); }
 
-.about { margin: 6px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.about-version { margin: 0; flex: 1 1 auto; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
-.about .backup-msg { flex: 1 1 100%; margin: 0; }
+/* ---------- Updates section ---------- */
+.updates { margin-top: 14px; }
+.ver-row { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; }
+.ver-name { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em; }
+.ver-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--green) 18%, transparent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.ver-label { margin: 0 0 6px; font-size: 0.85rem; font-weight: 650; color: var(--muted); }
+.notes-list { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.notes-list li { position: relative; padding-left: 18px; font-size: 0.92rem; line-height: 1.4; }
+.notes-list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.5em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.update-actions { margin: 4px 0 8px; }
+.update-hint { margin: 10px 0 0; font-size: 0.82rem; color: var(--muted); }
+a.btn-primary { display: inline-block; text-decoration: none; }
 .notify-btn:disabled { opacity: 0.6; cursor: default; }
 
 @media (max-width: 340px) {

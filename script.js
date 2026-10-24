@@ -1450,10 +1450,33 @@
       if (!asset && a && typeof a.browser_download_url === 'string' && /\.apk$/.test(a.browser_download_url) &&
           a.browser_download_url.indexOf(UPDATE_URL_PREFIX) === 0) asset = a.browser_download_url;
     });
-    return asset ? { build: parseInt(m[1], 10), url: asset } : null;
+    return asset ? { build: parseInt(m[1], 10), url: asset, notes: typeof data.body === 'string' ? data.body : '' } : null;
+  }
+
+  // Release notes are plain lines ("- something changed"). They are shown as text, never as HTML.
+  function renderNotes(listEl, text) {
+    listEl.textContent = '';
+    String(text || '').split('\n').map(function (l) { return l.replace(/^\s*[-\u2022*]\s*/, '').trim(); })
+      .filter(function (l) { return l; }).slice(0, 6).forEach(function (line) {
+        var li = el('li');
+        li.textContent = line.length > 160 ? line.slice(0, 159) + '\u2026' : line;
+        listEl.appendChild(li);
+      });
+    listEl.hidden = !listEl.firstChild;
+  }
+
+  // The Updates section card for a newer version.
+  function showUpdateDetails(info) {
+    var box = document.getElementById('update-new');
+    if (!box) return;
+    document.getElementById('update-new-title').textContent = 'Version 1.' + info.build + ' is available';
+    renderNotes(document.getElementById('notes-new'), info.notes);
+    document.getElementById('update-download').href = info.url;
+    box.hidden = false;
   }
 
   function showUpdateBanner(info) {
+    showUpdateDetails(info);
     var old = document.getElementById('update-banner');
     if (old) old.remove();
     var box = el('div', 'banner update');
@@ -1649,11 +1672,11 @@
     checkReminders();
     scheduleNativeSync();
     if (LN) ensureChannel();
-    var aboutEl = document.getElementById('about');
-    var versionEl = document.getElementById('app-version');
-    if (aboutEl && isNativeApp && window.APP_VERSION) {
-      versionEl.textContent = 'Cheqlist ' + window.APP_VERSION;
-      aboutEl.hidden = false;
+    var updatesEl = document.getElementById('updates');
+    if (updatesEl && isNativeApp && window.APP_VERSION) {
+      document.getElementById('app-version').textContent = 'Cheqlist ' + window.APP_VERSION;
+      renderNotes(document.getElementById('notes-current'), window.APP_NOTES);
+      updatesEl.hidden = false;
     }
     checkForUpdate();
   }

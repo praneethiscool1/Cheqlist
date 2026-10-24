@@ -86,10 +86,27 @@
       </div>
     </div>
     <p id="backup-msg" class="backup-msg" aria-live="polite"></p>
-    <div id="about" class="about" hidden>
-      <p id="app-version" class="about-version"></p>
+  </details>
+
+  <details id="updates" class="backup updates" hidden>
+    <summary>Updates</summary>
+    <div class="ver-row">
+      <p id="app-version" class="ver-name"></p>
+      <span class="ver-chip">Installed</span>
+    </div>
+    <p class="ver-label">What's new in this version</p>
+    <ul id="notes-current" class="notes-list"></ul>
+    <div class="update-actions">
       <button type="button" id="check-update" class="notify-btn">Check for updates</button>
-      <p id="update-msg" class="backup-msg" aria-live="polite"></p>
+    </div>
+    <p id="update-msg" class="backup-msg" aria-live="polite"></p>
+    <div id="update-new" class="confirm" hidden>
+      <p id="update-new-title" class="confirm-text"></p>
+      <ul id="notes-new" class="notes-list"></ul>
+      <div class="confirm-actions">
+        <a id="update-download" class="btn-primary" href="#">Download</a>
+      </div>
+      <p class="update-hint">Open the downloaded file and tap Install. Your tasks stay.</p>
     </div>
   </details>
 </main>
