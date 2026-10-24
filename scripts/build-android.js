@@ -59,7 +59,7 @@ fs.copyFileSync(capRuntime, path.join(www, 'capacitor.js'));
 // Tell the app which build it is, so it can notice when a newer one is released.
 var buildNumber = parseInt(process.env.VERSION_CODE || '1', 10) || 1;
 write(path.join(www, 'build-info.js'),
-  'window.APP_BUILD = ' + buildNumber + ';\nwindow.APP_VERSION = ' + JSON.stringify(process.env.VERSION_NAME || '1.0') + ';\n' +
+  'window.APP_BUILD = ' + buildNumber + ';\nwindow.APP_BUILT_AT = ' + JSON.stringify(new Date().toISOString()) + ';\nwindow.APP_VERSION = ' + JSON.stringify(process.env.VERSION_NAME || '1.0') + ';\n' +
   'window.APP_NOTES = ' + JSON.stringify(fs.existsSync(path.join(root, 'release-notes.txt')) ? read(path.join(root, 'release-notes.txt')) : '') + ';\n');
 
 var html = read(path.join(www, 'index.html'));
