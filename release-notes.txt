@@ -1,4 +1,3 @@
-- New opening screen: the Cheqlist logo and name animate in before the app appears.
-- New "Developed by" section. Sections are now in alphabetical order.
-- The Updates section now shows the date of each update.
-- Tapping the notification bell after denying permission now asks again whenever Android allows it.
+- The app icon is now the same logo as the opening screen, and the opening screen lasts 2.5 seconds.
+- If notifications were denied, the bell now shows an "Open settings" button that jumps straight to Cheqlist's notification settings, and turns itself on when you come back.
+- The drop-down boxes at the bottom now have equal gaps.

@@ -34,15 +34,18 @@
   // ---------- Are we inside the Android app? ----------
   var LN = null;    // native scheduled notifications
   var Prefs = null; // native key/value storage
+  var AppSettings = null; // opens this app's notification settings in the phone (small native helper)
   try {
     if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' &&
         window.Capacitor.isNativePlatform() && typeof window.Capacitor.registerPlugin === 'function') {
       LN = window.Capacitor.registerPlugin('LocalNotifications');
       Prefs = window.Capacitor.registerPlugin('Preferences');
+      try { AppSettings = window.Capacitor.registerPlugin('AppSettings'); } catch (e2) { AppSettings = null; }
     }
   } catch (e) {
     LN = null;
     Prefs = null;
+    AppSettings = null;
   }
   var isNativeApp = !!LN;
 
@@ -1083,6 +1086,7 @@
   setInterval(checkReminders, CHECK_EVERY_MS);
   // Phones slow down timers in background tabs, so also check whenever you come back.
   function onResume() {
+    handleSettingsReturn();
     checkReminders();
     refreshNotifyStatus();
     scheduleNativeSync();
@@ -1283,10 +1287,58 @@
     });
   }
 
-  function blockedMessage() {
-    return isNativeApp
-      ? 'Android will not show the permission box again, so it has to be turned on in your phone\u2019s Settings \u2192 Apps \u2192 Cheqlist \u2192 Notifications. Then come back and tap the bell.'
-      : 'Notifications are blocked for this site. Allow them in your browser\u2019s site settings, then reload.';
+  // When the phone no longer shows its permission box, the only way is its settings screen.
+  // One message with an "Open settings" button (Android app); it replaces any earlier copy instead of piling up.
+  var MANUAL_SETTINGS_TEXT = 'Android will not show the permission box again. Open your phone\u2019s Settings \u2192 Apps \u2192 Cheqlist \u2192 Notifications, turn them on, then come back.';
+  var waitingForSettings = false;
+
+  function removeBlockedBanner() {
+    var old = document.getElementById('notify-help');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+  }
+
+  function showBlockedBanner() {
+    removeBlockedBanner();
+    var box = el('div', 'banner warn');
+    box.id = 'notify-help';
+    var span = el('span');
+    var actions = el('span', 'banner-actions');
+    if (isNativeApp && AppSettings) {
+      span.textContent = 'Notifications are turned off for Cheqlist in your phone settings. Tap Open settings, switch Notifications on, then come back.';
+      var open = el('button');
+      open.type = 'button';
+      open.textContent = 'Open settings';
+      open.addEventListener('click', function () {
+        waitingForSettings = true;
+        var failed = function () { waitingForSettings = false; span.textContent = MANUAL_SETTINGS_TEXT; open.remove(); };
+        try { AppSettings.openNotificationSettings().catch(failed); } catch (e) { failed(); }
+      });
+      actions.appendChild(open);
+    } else {
+      span.textContent = isNativeApp ? MANUAL_SETTINGS_TEXT
+        : 'Notifications are blocked for this site. Allow them in your browser\u2019s site settings, then reload.';
+    }
+    var dismiss = el('button');
+    dismiss.type = 'button';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', function () { box.remove(); });
+    actions.appendChild(dismiss);
+    box.appendChild(span);
+    box.appendChild(actions);
+    remindersEl.appendChild(box);
+  }
+
+  // Back from the phone's settings screen: if notifications were switched on there, switch the bell on too.
+  function handleSettingsReturn() {
+    if (!waitingForSettings) return;
+    notifyPermission().then(function (p) {
+      if (p !== 'granted') return;
+      waitingForSettings = false;
+      setNotifyMuted(false);
+      removeBlockedBanner();
+      if (isNativeApp) askExactAlarms();
+      return notifyChanged();
+    });
   }
 
   function notifyChanged() {
@@ -1315,7 +1367,7 @@
       setNotifyMuted(false);
       if (isNativeApp) askExactAlarms();
     } else if (result === 'denied') {
-      addBanner(blockedMessage(), 'warn');
+      showBlockedBanner();
     }
     return notifyChanged();
   }
@@ -1669,7 +1721,7 @@
   }
 
   // The opening screen hides itself with CSS; this only removes it from the page afterwards.
-  setTimeout(function () { var s = document.getElementById('splash'); if (s && s.parentNode) s.parentNode.removeChild(s); }, 2200);
+  setTimeout(function () { var s = document.getElementById('splash'); if (s && s.parentNode) s.parentNode.removeChild(s); }, 3200);
 
   renderedToday = todayString();
   if (isNativeApp) restoreFromNativeStore().then(start, start);
