@@ -18,7 +18,7 @@
   var ON_TIME_WINDOW_MS = 2 * 60 * 1000;  // a reminder up to 2 minutes late still counts as "on time"
   var DESC_MAX = 1000;
   var MAX_NID = 2000000000;               // native notification ids stay below this
-  var TEST_NOTIFICATION_ID = 2100000000;  // reserved for the "test notification" button
+  var TEST_NOTIFICATION_ID = 2100000000;  // reserved id (never used for a task alert)
   var CHANNEL_ID = 'reminders';
 
   // ---------- Page elements ----------
@@ -30,7 +30,6 @@
   var listEl = document.getElementById('task-list');
   var emptyEl = document.getElementById('empty');
   var remindersEl = document.getElementById('reminders');
-  var notifyBar = document.getElementById('notify-bar');
 
   // ---------- Are we inside the Android app? ----------
   var LN = null;    // native scheduled notifications
@@ -55,7 +54,7 @@
   //         '^' = above everything, '$' = below everything, 'YYYY-MM-DD' = just above that date's group,
   //   color: 'green' | 'yellow' | 'red' | null,
   //   reminder: 'YYYY-MM-DDTHH:MM' or ''   (your local time),
-  //   notified: true once its reminder has been shown or skipped,
+  //   notified: true once its overdue alert (at the reminder time, or at midnight after its date) has been shown or skipped,
   //   order: number; tasks in the same list are shown in ascending order }
   var tasks = [];
   var needsMigrationSave = false;
@@ -110,6 +109,22 @@
     return new Date(+r.slice(0, 4), +r.slice(5, 7) - 1, +r.slice(8, 10), +r.slice(11, 13), +r.slice(14, 16)).getTime();
   }
 
+  // The moment a task becomes overdue: its reminder time if it has one, otherwise 12:00 am on the day after its date.
+  // NaN when it has neither (an undated task with no reminder never becomes overdue).
+  function deadlineMs(task) {
+    if (task.reminder) return reminderMs(task.reminder);
+    if (task.date) {
+      var d = parseDateString(task.date);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+    }
+    return NaN;
+  }
+
+  // The earliest time that can still be chosen: the next whole minute from now.
+  function nextMinuteDate() { return new Date(Math.ceil((Date.now() + 1) / 60000) * 60000); }
+  function localTimeString(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+  function localDateString(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
   function parseDateString(v) {
     return new Date(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10));
   }
@@ -136,6 +151,12 @@
     var time = formatTime12(timePart(item.reminder));
     if (item.date && datePart(item.reminder) === item.date) return time;
     return formatDayShort(datePart(item.reminder)) + ', ' + time;
+  }
+
+  // "Wed, 22 Oct" or "Wed, 22 Oct, 6:30 PM": when a task was due.
+  function deadlineLabel(task) {
+    if (task.reminder) return formatDayShort(datePart(task.reminder)) + ', ' + formatTime12(timePart(task.reminder));
+    return task.date ? formatDayShort(task.date) : '';
   }
 
   function dayLabel(date) {
@@ -296,7 +317,7 @@
         slot: slot,
         color: COLORS.indexOf(t.color) !== -1 ? t.color : null,
         reminder: reminder,
-        notified: reminder ? t.notified === true : false,
+        notified: (reminder || date) ? t.notified === true : false,
         // Older tasks had no "order": use their saved position so the order you saw is kept.
         order: (typeof t.order === 'number' && isFinite(t.order)) ? t.order : out.length
       });
@@ -404,8 +425,11 @@
     input.type = o.inputType;
     input.value = o.inputValue || '';
     input.setAttribute('aria-label', o.label);
+    function applyMin() { var m = o.min ? o.min() : ''; if (m) input.min = m; else input.removeAttribute('min'); }
+    applyMin();
     input.addEventListener('change', function () { o.onChange(input.value); });
     pill.addEventListener('click', function () {
+      applyMin(); // the earliest allowed time moves forward as the clock does
       try { if (input.showPicker) input.showPicker(); } catch (e) { /* the native input still works */ }
     });
     pill.appendChild(text);
@@ -451,7 +475,14 @@
     return reminderMs(shifted) > Date.now() ? shifted : '';
   }
 
-  var PAST_MESSAGE = 'That reminder time has already passed, so no reminder was set.';
+  var PAST_MESSAGE = 'That time has already passed. Pick a time that is still ahead.';
+  var PAST_DATE_MESSAGE = 'You can only pick today or a later date.';
+  function isPastDate(date) { return !!date && date < todayString(); }
+  function minDate() { return todayString(); }
+  // Reminder inputs: with a task date, only a time (and for today only a time still ahead);
+  // without one, a date and time that are still ahead.
+  function minTimeFor(date) { return date === todayString() ? localTimeString(nextMinuteDate()) : ''; }
+  function minDateTime() { var d = nextMinuteDate(); return localDateString(d) + 'T' + localTimeString(d); }
 
   // ---------- The "new task" form ----------
   var newColorPicker = makeColorPicker(null, function (color) { draft.color = color; });
@@ -483,6 +514,7 @@
       inputValue: draft.date,
       label: 'Task date (optional)',
       clearLabel: 'Remove date',
+      min: minDate,
       onChange: function (v) { setDraftDate(isDateString(v) ? v : ''); },
       onClear: function () { setDraftDate(''); }
     });
@@ -494,6 +526,7 @@
       inputValue: draft.reminder ? (timeOnly ? timePart(draft.reminder) : draft.reminder) : '',
       label: timeOnly ? 'Reminder time (optional)' : 'Reminder date and time (optional)',
       clearLabel: 'Remove reminder',
+      min: timeOnly ? function () { return minTimeFor(draft.date); } : minDateTime,
       onChange: function (v) {
         var r = parseReminderInput(draft.date, v, timeOnly);
         if (r === null) { renderDraftControls(); return; }
@@ -511,6 +544,7 @@
   }
 
   function setDraftDate(date) {
+    if (isPastDate(date)) { addBanner(PAST_DATE_MESSAGE, 'warn'); renderDraftControls(); return; }
     draft.date = date;
     if (date && draft.reminder) {
       var shifted = shiftReminder(draft.reminder, date);
@@ -528,6 +562,13 @@
       return;
     }
 
+    if (isPastDate(draft.date)) { // the day changed while the form was open
+      addBanner(PAST_DATE_MESSAGE, 'warn');
+      draft.date = '';
+      draft.reminder = '';
+      renderDraftControls();
+      return;
+    }
     var reminder = draft.reminder;
     if (reminder && reminderMs(reminder) <= Date.now()) {
       reminder = '';
@@ -568,8 +609,10 @@
   function changeTaskDate(task, value) {
     var date = isDateString(value) ? value : '';
     if (date === task.date) { renderAll(); return; }
+    if (isPastDate(date)) { addBanner(PAST_DATE_MESSAGE, 'warn'); renderAll(); return; }
 
     task.date = date;
+    task.notified = false; // a new date is a new deadline
     if (date) {
       task.slot = '';
       task.order = topOrder(date, task); // top of its new group; other tasks keep their order
@@ -604,7 +647,7 @@
 
   // ---------- Drawing one task row ----------
   function isOverdue(task) {
-    var due = reminderMs(task.reminder);
+    var due = deadlineMs(task);
     return !task.done && !isNaN(due) && due <= Date.now();
   }
 
@@ -659,6 +702,7 @@
       inputValue: task.date,
       label: 'Task date (optional)',
       clearLabel: 'Remove date',
+      min: minDate,
       onChange: function (v) { changeTaskDate(task, v); },
       onClear: function () { changeTaskDate(task, ''); }
     });
@@ -668,6 +712,7 @@
       text: task.reminder ? reminderLabel(task) : 'Add reminder',
       set: !!task.reminder,
       overdue: isOverdue(task),
+      min: timeOnly ? function () { return minTimeFor(task.date); } : minDateTime,
       inputType: timeOnly ? 'time' : 'datetime-local',
       inputValue: task.reminder ? (timeOnly ? timePart(task.reminder) : task.reminder) : '',
       label: timeOnly ? 'Reminder time (optional)' : 'Reminder date and time (optional)',
@@ -680,9 +725,10 @@
         renderAll();
       }
     });
-    var overdueLabel = el('span', 'overdue-label');
-    overdueLabel.textContent = 'Overdue';
-    reminderPill.wrap.appendChild(overdueLabel);
+    var overdueBadge = el('span', 'overdue-badge');
+    overdueBadge.textContent = 'Overdue';
+    overdueBadge.hidden = true;
+    main.insertBefore(overdueBadge, text);
 
     meta.appendChild(picker);
     meta.appendChild(datePill.wrap);
@@ -702,8 +748,10 @@
       li.classList.toggle('done', task.done);
       COLORS.forEach(function (c) { li.classList.toggle('p-' + c, task.color === c); });
       var overdue = isOverdue(task);
+      li.classList.toggle('overdue', overdue);
       reminderPill.pill.classList.toggle('is-overdue', overdue);
-      overdueLabel.hidden = !overdue;
+      datePill.pill.classList.toggle('is-overdue', overdue);
+      overdueBadge.hidden = !overdue;
     }
     li.paintRow = paintRow;
 
@@ -941,29 +989,32 @@
     if (evt.to && evt.to !== evt.from) setTimeout(renderAll, 0);
   }
 
-  // ---------- Reminders ----------
-  // A reminder is "pending" while the task has a reminder and `notified` is false.
-  // Only this one function decides when the open app shows a reminder, and it runs from one timer,
-  // so a reminder can never show twice from a re-draw, refresh or edit.
+  // ---------- Overdue alerts ----------
+  // A task's deadline is its reminder time, or (with only a date) 12:00 am on the day after that date.
+  // When the deadline passes and the task is not ticked, it is marked "Overdue" and one alert is sent.
+  // The alert is "pending" while `notified` is false. Only this one function decides when the open app
+  // shows it, and it runs from one timer, so an alert can never show twice from a re-draw, refresh or edit.
   //
-  //  - Reminder time arrives while the app is open: in-app banner (+ a system notification on the web;
+  //  - Deadline passes while the app is open: in-app banner (+ a system notification on the web;
   //    in the Android app the phone's own alarm shows the notification).
-  //  - Task is done when the time arrives: the reminder is skipped silently and never fires later,
-  //    even if you untick the task.
-  //  - The time passed while the app was closed: the next time you open it you get one "Missed reminder"
-  //    banner (no new system notification for something that old).
+  //  - Task is ticked before the deadline: the alert is skipped silently and never fires later,
+  //    even if you untick the task (it is still marked Overdue, because it is).
+  //  - The deadline passed while the app was closed: on the next open you get one "Overdue" banner
+  //    (several at once are combined into one); no new system notification for something that old.
   function checkReminders() {
     if (!booted) return;
 
-    // A new day started while the app was open: refresh the "Today" heading.
-    if (todayString() !== renderedToday) renderAll();
+    // A new day started while the app was open: refresh the "Today" heading and the earliest allowed date.
+    if (todayString() !== renderedToday) { renderAll(); renderDraftControls(); }
 
     var now = Date.now();
     var changed = false;
+    var missed = [];
 
     tasks.forEach(function (task) {
-      if (!task.reminder || task.notified) return;
-      var due = reminderMs(task.reminder);
+      if (task.notified) return;
+      if (!task.reminder && !task.date) return;
+      var due = deadlineMs(task);
       if (isNaN(due)) { task.reminder = ''; changed = true; return; }
       if (due > now) return;
 
@@ -978,11 +1029,12 @@
       }
       task.notified = true;
       saveTasks(); // mark as shown before showing, so nothing can show it twice
-      if (now - due <= ON_TIME_WINDOW_MS) fireReminder(task);
-      else showMissedReminder(task);
+      if (now - due <= ON_TIME_WINDOW_MS) fireOverdue(task);
+      else missed.push(task);
     });
 
     if (changed) saveTasks();
+    showMissedOverdue(missed);
 
     Array.prototype.forEach.call(listEl.querySelectorAll('.task'), function (li) { li.paintRow(); });
   }
@@ -993,21 +1045,21 @@
       var data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
       for (var i = 0; i < data.length; i++) {
         if (data[i] && data[i].id === task.id) {
-          return !(data[i].notified === true && data[i].reminder === task.reminder);
+          return !(data[i].notified === true && data[i].reminder === task.reminder && data[i].date === task.date);
         }
       }
     } catch (e) { /* if storage can't be read, just show it */ }
     return true;
   }
 
-  function fireReminder(task) {
-    // 1) In-app reminder: always works while the app is open.
-    addBanner('Reminder: ' + task.text + ' (' + reminderLabel(task) + ')');
+  function fireOverdue(task) {
+    // 1) In-app message: always works while the app is open.
+    addBanner('Overdue: ' + task.text + ' (was due ' + deadlineLabel(task) + ')', 'warn');
 
-    // 2) System notification on the web, if permission was granted. Delivery is not guaranteed.
+    // 2) System notification on the web, if permission was granted and notifications are on. Delivery is not guaranteed.
     //    (The Android app does not need this: the phone's own alarm shows the notification.)
-    if (!isNativeApp && notificationsSupported() && Notification.permission === 'granted') {
-      showSystemNotification('Task reminder', task.text + ' • ' + reminderLabel(task), 'task-' + task.id)
+    if (!isNativeApp && notificationsSupported() && Notification.permission === 'granted' && !notifyMuted()) {
+      showSystemNotification('Overdue: ' + task.text, 'Was due ' + deadlineLabel(task), 'task-' + task.id)
         .then(function () {
           if (lastNotifyError) { lastNotifyError = ''; refreshNotifyStatus(); }
         })
@@ -1018,9 +1070,14 @@
     }
   }
 
-  function showMissedReminder(task) {
-    var when = formatDayShort(datePart(task.reminder)) + ', ' + formatTime12(timePart(task.reminder));
-    addBanner('Missed reminder: ' + task.text + ' (was due ' + when + ')');
+  function showMissedOverdue(missed) {
+    if (!missed.length) return;
+    if (missed.length === 1) {
+      addBanner('Overdue: ' + missed[0].text + ' (was due ' + deadlineLabel(missed[0]) + ')', 'warn');
+      return;
+    }
+    var names = missed.slice(0, 3).map(function (t) { return '"' + firstLine(t.text, 30) + '"'; }).join(', ');
+    addBanner(missed.length + ' tasks are overdue: ' + names + (missed.length > 3 ? ' and ' + (missed.length - 3) + ' more' : '') + '.', 'warn');
   }
 
   setInterval(checkReminders, CHECK_EVERY_MS);
@@ -1074,7 +1131,7 @@
   }
 
   function nativeBody(task) {
-    var body = reminderLabel(task);
+    var body = 'Was due ' + deadlineLabel(task);
     if (task.description) body += ' · ' + firstLine(task.description, 100);
     return body;
   }
@@ -1082,7 +1139,7 @@
   function buildNativeNotification(task, due, key, channelOk, exactOk) {
     var n = {
       id: task.nid,
-      title: task.text,
+      title: 'Overdue: ' + task.text,
       body: nativeBody(task),
       schedule: { at: new Date(due), allowWhileIdle: true },
       smallIcon: 'ic_stat_todo',
@@ -1122,6 +1179,7 @@
     return LN.checkPermissions().then(function (perm) {
       // Never ask for permission from here: that only happens when you press "Enable notifications".
       if (!perm || perm.display !== 'granted') return null;
+      var muted = notifyMuted();
       return Promise.all([ensureChannel(), exactAlarmsAllowed(), LN.getPending()]).then(function (r) {
         var channelOk = r[0];
         var exactOk = r[1];
@@ -1131,10 +1189,10 @@
         var desired = {};
         var list = [];
         tasks.forEach(function (t) {
-          if (!t.reminder || t.done || t.notified) return;
-          var due = reminderMs(t.reminder);
+          if (muted || (!t.reminder && !t.date) || t.done || t.notified) return;
+          var due = deadlineMs(t);
           if (isNaN(due) || due <= now + 2000) return;
-          var key = [t.id, t.reminder, t.text, t.description].join('|');
+          var key = [t.id, t.reminder, t.date, t.text, t.description].join('|');
           desired[t.nid] = key;
           list.push(buildNativeNotification(t, due, key, channelOk, exactOk));
         });
@@ -1180,191 +1238,116 @@
     });
   }
 
-  function computeWebNotifyStatus() {
-    if (!notificationsSupported()) {
-      return Promise.resolve({ state: 'unsupported', text: 'Notifications are not supported in this browser. Reminders will only appear inside the app while it is open.' });
-    }
-    if (window.isSecureContext === false) {
-      return Promise.resolve({ state: 'unsupported', text: 'Notifications need a secure (https) page, which this is not. Reminders will only appear inside the app while it is open.' });
-    }
-    var permission = Notification.permission;
-    if (permission === 'denied') {
-      return Promise.resolve({
-        state: 'blocked',
-        text: 'Notifications are blocked, so reminders only appear inside the app. To allow them: open your browser or phone settings, go to Site settings (or App info) → Notifications, and allow them for this app. Then reopen it.'
-      });
-    }
-    if (permission !== 'granted') {
-      return Promise.resolve({
-        state: 'needs-permission',
-        action: 'enable',
-        text: 'Notifications are off. Reminders only appear inside the app until you allow notifications.'
-      });
-    }
-    if (lastNotifyError) {
-      return Promise.resolve({
-        state: 'error',
-        action: 'test',
-        text: 'Permission is granted, but the last notification failed (' + lastNotifyError + '). Reminders still appear inside the app.'
-      });
-    }
-    return getSwRegistration().then(function (reg) {
-      if (reg) {
-        return {
-          state: 'enabled',
-          action: 'test',
-          text: 'Notifications are allowed and ready. They can appear while the app is open or running in the background. A fully closed web app cannot send them; the Android app can.'
-        };
-      }
-      return {
-        state: 'limited',
-        action: 'test',
-        text: 'Notifications are allowed, but the notification service is not active yet. Reload once while online. Reminders still appear inside the app.'
-      };
-    });
+  // The bell switch in the top corner. It is ON when the phone allows notifications for the app and you have not
+  // turned them off here. Turning it off keeps the permission but stops the app from sending alerts
+  // (the phone's alarms are cancelled); turning it on again re-schedules them.
+  var NOTIFY_OFF_KEY = 'todo-notify-off';
+  var notifyToggle = document.getElementById('notify-toggle');
+
+  function notifyMuted() {
+    try { return localStorage.getItem(NOTIFY_OFF_KEY) === '1'; } catch (e) { return false; }
+  }
+  function setNotifyMuted(muted) {
+    try {
+      if (muted) localStorage.setItem(NOTIFY_OFF_KEY, '1');
+      else localStorage.removeItem(NOTIFY_OFF_KEY);
+    } catch (e) { /* the choice just will not be remembered */ }
   }
 
-  // Android app: status from the phone's real permission and alarm settings.
-  function computeNativeNotifyStatus() {
-    return LN.checkPermissions().then(function (perm) {
-      var display = perm && perm.display;
-      if (display === 'denied') {
-        return {
-          state: 'blocked',
-          text: 'Notifications are blocked for this app, so reminders cannot alert you. Open your phone’s Settings → Apps → Cheqlist → Notifications and turn them on, then come back.'
-        };
-      }
-      if (display !== 'granted') {
-        return {
-          state: 'needs-permission',
-          action: 'enable',
-          text: 'Notifications are off. Press the button and allow notifications so reminders can alert you, even when the app is closed.'
-        };
-      }
-      if (lastNotifyError) {
-        return {
-          state: 'error',
-          action: 'test',
-          text: 'Notifications are allowed, but there was a problem: ' + lastNotifyError + '. Reminders still appear inside the app.'
-        };
-      }
-      return LN.checkExactNotificationSetting().then(
-        function (r) { return !r || r.exact_alarm !== 'denied'; },
-        function () { return true; }
-      ).then(function (exactOk) {
-        if (!exactOk) {
-          return {
-            state: 'limited',
-            action: 'exact',
-            text: 'Notifications are allowed, but “Alarms & reminders” is off for this app, so reminders can arrive late. Allow it for on-time reminders.'
-          };
-        }
-        return {
-          state: 'enabled',
-          action: 'test',
-          text: 'Notifications are on. Reminders will alert you even when the app is closed.'
-        };
-      });
-    }).catch(function (e) {
-      return { state: 'error', text: 'Could not check notifications on this phone (' + errText(e) + '). Reminders still appear inside the app.' };
-    });
-  }
-
-  function computeNotifyStatus() {
-    return isNativeApp ? computeNativeNotifyStatus() : computeWebNotifyStatus();
-  }
-
-  function addNotifyButton(label, handler) {
-    var b = el('button', 'notify-btn');
-    b.type = 'button';
-    b.textContent = label;
-    b.addEventListener('click', handler);
-    notifyBar.appendChild(b);
-  }
-
-  function renderNotifyBar(status) {
-    notifyBar.textContent = '';
-    notifyBar.dataset.state = status.state;
-
-    var msg = el('span', 'notify-msg');
-    msg.textContent = status.text;
-    notifyBar.appendChild(msg);
-
-    if (status.action === 'enable') addNotifyButton('Enable notifications', requestNotificationPermission);
-    else if (status.action === 'exact') addNotifyButton('Allow on-time reminders', allowExactAlarms);
-    else if (status.action === 'test') addNotifyButton('Send test notification', sendTestNotification);
+  // 'granted' | 'denied' | 'default' (not asked yet) | 'unsupported' | 'error'
+  function notifyPermission() {
+    if (isNativeApp) {
+      return LN.checkPermissions().then(function (p) {
+        var d = p && p.display;
+        return d === 'granted' ? 'granted' : (d === 'denied' ? 'denied' : 'default');
+      }, function () { return 'error'; });
+    }
+    if (!notificationsSupported() || window.isSecureContext === false) return Promise.resolve('unsupported');
+    var p = Notification.permission;
+    return Promise.resolve(p === 'granted' ? 'granted' : (p === 'denied' ? 'denied' : 'default'));
   }
 
   function refreshNotifyStatus() {
-    return computeNotifyStatus().then(renderNotifyBar);
+    if (!notifyToggle) return Promise.resolve();
+    return notifyPermission().then(function (p) {
+      var on = p === 'granted' && !notifyMuted();
+      notifyToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+      notifyToggle.classList.toggle('is-on', on);
+      notifyToggle.disabled = p === 'unsupported';
+      notifyToggle.dataset.state = lastNotifyError ? 'error' : p;
+      notifyToggle.title = lastNotifyError ? 'Notifications: problem (' + lastNotifyError + ')'
+        : on ? 'Notifications are on. Tap to turn them off.'
+        : p === 'denied' ? 'Notifications are blocked in your phone settings.'
+        : p === 'unsupported' ? 'Notifications are not available here.'
+        : 'Notifications are off. Tap to turn them on.';
+    });
   }
 
-  // Only runs when you press the button. The app never asks on its own.
+  function blockedMessage() {
+    return isNativeApp
+      ? 'Notifications are blocked for Cheqlist. Open your phone\u2019s Settings \u2192 Apps \u2192 Cheqlist \u2192 Notifications and turn them on.'
+      : 'Notifications are blocked for this site. Allow them in your browser\u2019s site settings, then reload.';
+  }
+
+  function notifyChanged() {
+    scheduleNativeSync();
+    return refreshNotifyStatus();
+  }
+
+  // Runs only when you tap the switch. The app never asks on its own.
+  function onNotifyToggle() {
+    notifyPermission().then(function (p) {
+      if (p === 'granted') {
+        var turnOff = !notifyMuted();
+        setNotifyMuted(turnOff);
+        if (!turnOff && isNativeApp) askExactAlarms();
+        return notifyChanged();
+      }
+      if (p === 'denied') { addBanner(blockedMessage(), 'warn'); return refreshNotifyStatus(); }
+      if (p === 'unsupported') { addBanner('Notifications are not available in this browser. Alerts still appear inside the app.', 'warn'); return refreshNotifyStatus(); }
+      return requestNotificationPermission();
+    });
+  }
+
+  function afterPermissionAnswer(result) {
+    if (result === 'granted') {
+      setNotifyMuted(false);
+      if (isNativeApp) askExactAlarms();
+    } else if (result === 'denied') {
+      addBanner(blockedMessage(), 'warn');
+    }
+    return notifyChanged();
+  }
+
   function requestNotificationPermission() {
     if (isNativeApp) {
-      LN.requestPermissions().then(function () {
-        scheduleNativeSync();
-        return refreshNotifyStatus();
+      return LN.requestPermissions().then(function (r) {
+        return afterPermissionAnswer(r && r.display);
       }, function (e) {
         lastNotifyError = errText(e);
         return refreshNotifyStatus();
       });
-      return;
     }
-    if (!notificationsSupported()) { refreshNotifyStatus(); return; }
     try {
-      Promise.resolve(Notification.requestPermission()).then(refreshNotifyStatus, refreshNotifyStatus);
+      return Promise.resolve(Notification.requestPermission()).then(afterPermissionAnswer, function (e) {
+        lastNotifyError = errText(e);
+        return refreshNotifyStatus();
+      });
     } catch (e) {
       lastNotifyError = errText(e);
-      refreshNotifyStatus();
+      return refreshNotifyStatus();
     }
   }
 
-  function allowExactAlarms() {
-    LN.changeExactNotificationSetting().then(function () {
-      scheduleNativeSync();
-      return refreshNotifyStatus();
-    }, function (e) {
-      lastNotifyError = errText(e);
-      return refreshNotifyStatus();
+  // Android 12+ can switch exact alarms off per app; if so, ask once (it opens the phone's own setting).
+  function askExactAlarms() {
+    exactAlarmsAllowed().then(function (ok) {
+      if (ok) return null;
+      return LN.changeExactNotificationSetting().then(scheduleNativeSync, function () { /* alerts may arrive a little late */ });
     });
   }
 
-  function sendTestNotification() {
-    if (isNativeApp) {
-      Promise.all([ensureChannel(), exactAlarmsAllowed()]).then(function (r) {
-        var n = {
-          id: TEST_NOTIFICATION_ID,
-          title: 'Test notification',
-          body: 'If you can see this, reminders can reach you.',
-          schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
-          smallIcon: 'ic_stat_todo',
-          iconColor: '#3B6CF6',
-          isExactNotification: r[1]
-        };
-        if (r[0]) n.channelId = CHANNEL_ID;
-        return LN.schedule({ notifications: [n] });
-      }).then(function () {
-        lastNotifyError = '';
-        addBanner('A test notification will appear in a few seconds. If nothing appears, check this app’s notification settings on your phone.');
-        return refreshNotifyStatus();
-      }).catch(function (e) {
-        lastNotifyError = errText(e);
-        return refreshNotifyStatus();
-      });
-      return;
-    }
-    showSystemNotification('Test notification', 'If you can see this, notifications work on this device.', 'todo-test')
-      .then(function () {
-        lastNotifyError = '';
-        addBanner('Test notification sent. If nothing appeared on your device, check your phone’s notification settings for this app.');
-        refreshNotifyStatus();
-      })
-      .catch(function (e) {
-        lastNotifyError = errText(e);
-        refreshNotifyStatus();
-      });
-  }
+  if (notifyToggle) notifyToggle.addEventListener('click', onNotifyToggle);
 
   // Web: keep the status line right if you change the permission in browser settings.
   if (!isNativeApp && navigator.permissions && navigator.permissions.query) {
@@ -1602,7 +1585,8 @@
       var now = Date.now();
       // Reminders that already passed were handled before the backup was made: do not announce them again.
       pendingRestore.forEach(function (t) {
-        if (t.reminder && reminderMs(t.reminder) <= now) t.notified = true;
+        var dm = deadlineMs(t);
+        if (!isNaN(dm) && dm <= now) t.notified = true;
       });
       tasks = pendingRestore;
       pendingRestore = null;

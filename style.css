@@ -333,8 +333,22 @@ summary:focus-visible {
   cursor: pointer;
 }
 .pill-x:hover { background: var(--danger-soft); color: var(--red); }
-.overdue-label { font-size: 0.78rem; color: var(--red); font-weight: 700; margin-left: 4px; }
-.overdue-label[hidden] { display: none; }
+.overdue-badge {
+  display: block;
+  width: max-content;
+  margin: 0 0 3px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--red);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.overdue-badge[hidden] { display: none; }
+.task.overdue .task-text { color: var(--red); }
+.task.overdue.done .task-text { color: var(--muted); }
 
 /* ---------- Priority dots ---------- */
 .colors { display: inline-flex; gap: 6px; padding: 3px; }
@@ -358,39 +372,7 @@ summary:focus-visible {
   box-shadow: 0 0 0 2.5px var(--sheet), 0 0 0 4.5px var(--ink);
 }
 
-/* ---------- Notification status ---------- */
-.notify-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin: 14px 0 0;
-  padding: 11px 14px 11px 34px;
-  position: relative;
-  background: var(--sheet);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
-  font-size: 0.86rem;
-  color: var(--muted);
-}
-.notify-bar:empty { display: none; }
-.notify-bar::before {
-  content: "";
-  position: absolute;
-  left: 15px;
-  top: 17px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-.notify-bar[data-state="enabled"]::before { background: var(--green); }
-.notify-bar[data-state="needs-permission"]::before,
-.notify-bar[data-state="limited"]::before { background: var(--yellow); }
-.notify-bar[data-state="blocked"]::before,
-.notify-bar[data-state="error"]::before,
-.notify-bar[data-state="unsupported"]::before { background: var(--red); }
-.notify-msg { flex: 1 1 220px; min-width: 0; }
+/* Buttons used in Backup and restore */
 .notify-btn {
   flex: none;
   background: var(--accent-soft);
@@ -403,6 +385,52 @@ summary:focus-visible {
   transition: transform 0.18s var(--spring);
 }
 .notify-btn:active { transform: scale(0.95); }
+
+/* ---------- Notification switch (top corner) ---------- */
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hero-top .hero-day { flex: 1 1 auto; min-width: 0; }
+.notify-toggle {
+  flex: none;
+  position: relative;
+  width: 60px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  box-shadow: inset 0 0 0 1.5px rgba(127, 134, 160, 0.35);
+  cursor: pointer;
+  transition: background 0.25s var(--ease), box-shadow 0.25s;
+}
+.notify-toggle .knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--sheet);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(20, 26, 46, 0.25);
+  transition: transform 0.35s var(--spring);
+}
+.notify-toggle .knob::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  background: var(--muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z'/%3E%3Cpath d='M10 20a2.2 2.2 0 0 0 4 0'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z'/%3E%3Cpath d='M10 20a2.2 2.2 0 0 0 4 0'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.notify-toggle.is-on { background: var(--accent); box-shadow: none; }
+.notify-toggle.is-on .knob { transform: translateX(26px); }
+.notify-toggle.is-on .knob::before { background: var(--accent); }
+.notify-toggle[data-state="error"] { box-shadow: inset 0 0 0 2px var(--red); }
+.notify-toggle:disabled { opacity: 0.5; cursor: default; }
+.notify-toggle:active .knob { transform: scale(0.92); }
+.notify-toggle.is-on:active .knob { transform: translateX(26px) scale(0.92); }
+.notify-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* ---------- Banners (in-app reminders and messages) ---------- */
 .reminders { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }

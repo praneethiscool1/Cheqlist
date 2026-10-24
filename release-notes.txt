@@ -1,2 +1,3 @@
-- Cheqlist now checks for updates by itself every time you open it. The Check for updates button is gone.
-- The header shows just the app name.
+- Overdue: a task not ticked by 12:00 am after its date, or by its reminder time, is marked Overdue and you get a notification.
+- New tasks can only be dated today or later, and a reminder for today must be a time that is still ahead.
+- Notifications are now a simple switch (bell) in the top corner instead of the big panel.

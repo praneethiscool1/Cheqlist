@@ -25,7 +25,10 @@
 <main class="app">
   <header class="hero">
     <p class="sr-only">Cheqlist</p>
-    <h1 id="hero-day" class="hero-day">Cheqlist</h1>
+    <div class="hero-top">
+      <h1 id="hero-day" class="hero-day">Cheqlist</h1>
+      <button type="button" id="notify-toggle" class="notify-toggle" role="switch" aria-checked="false" aria-label="Notifications" title="Notifications"><span class="knob"></span></button>
+    </div>
     <div class="hero-row">
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Colour theme">
         <button type="button" data-theme-choice="auto" title="Match my phone" aria-label="Match my phone" aria-pressed="true"></button>
@@ -52,8 +55,6 @@
       </div>
     </div>
   </form>
-
-  <div id="notify-bar" class="notify-bar" aria-live="polite"></div>
 
   <div id="task-list" class="days"></div>
   <div id="empty" class="empty" hidden>
