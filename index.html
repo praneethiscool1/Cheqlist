@@ -24,15 +24,15 @@
 <body>
 <main class="app">
   <header class="hero">
-    <div class="hero-text">
-      <p class="sr-only">Cheqlist</p>
-      <h1 id="hero-day" class="hero-day">Cheqlist</h1>
+    <p class="sr-only">Cheqlist</p>
+    <h1 id="hero-day" class="hero-day">Cheqlist</h1>
+    <div class="hero-row">
       <p id="hero-date" class="hero-date"></p>
-    </div>
-    <div id="theme-switch" class="theme-switch" role="group" aria-label="Colour theme">
-      <button type="button" data-theme-choice="auto" title="Match my phone" aria-label="Match my phone" aria-pressed="true"></button>
-      <button type="button" data-theme-choice="light" title="Light" aria-label="Light" aria-pressed="false"></button>
-      <button type="button" data-theme-choice="dark" title="Dark" aria-label="Dark" aria-pressed="false"></button>
+      <div id="theme-switch" class="theme-switch" role="group" aria-label="Colour theme">
+        <button type="button" data-theme-choice="auto" title="Match my phone" aria-label="Match my phone" aria-pressed="true"></button>
+        <button type="button" data-theme-choice="light" title="Light" aria-label="Light" aria-pressed="false"></button>
+        <button type="button" data-theme-choice="dark" title="Dark" aria-label="Dark" aria-pressed="false"></button>
+      </div>
     </div>
   </header>
 
@@ -78,13 +78,19 @@
       <button type="button" id="backup-restore" class="notify-btn">Restore from pasted backup</button>
     </div>
     <textarea id="backup-text" class="desc-input" rows="4" placeholder="Paste a backup here to restore" aria-label="Backup text"></textarea>
-    <div id="backup-confirm" class="banner warn" hidden>
-      <span id="backup-confirm-text"></span>
-      <button type="button" id="backup-confirm-yes">Replace</button>
-      <button type="button" id="backup-confirm-no">Cancel</button>
+    <div id="backup-confirm" class="confirm" role="alertdialog" aria-labelledby="backup-confirm-text" hidden>
+      <p id="backup-confirm-text" class="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" id="backup-confirm-yes" class="btn-primary">Replace</button>
+        <button type="button" id="backup-confirm-no" class="btn-ghost">Cancel</button>
+      </div>
     </div>
     <p id="backup-msg" class="backup-msg" aria-live="polite"></p>
-    <p id="app-version" class="note" hidden></p>
+    <div id="about" class="about" hidden>
+      <p id="app-version" class="about-version"></p>
+      <button type="button" id="check-update" class="notify-btn">Check for updates</button>
+      <p id="update-msg" class="backup-msg" aria-live="polite"></p>
+    </div>
   </details>
 </main>
 

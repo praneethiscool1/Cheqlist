@@ -164,7 +164,22 @@
     var now = new Date();
     if (heroDay) heroDay.textContent = now.toLocaleDateString([], { weekday: 'long' });
     if (heroDate) heroDate.textContent = now.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+    fitHero();
   }
+
+  // The weekday is big. On narrow screens or with large system text, shrink it until it fits on one line.
+  function fitHero() {
+    if (!heroDay) return;
+    heroDay.style.fontSize = '';
+    var size = parseFloat(window.getComputedStyle(heroDay).fontSize) || 0;
+    var guard = 0;
+    while (size > 26 && heroDay.scrollWidth > heroDay.clientWidth + 1 && guard++ < 40) {
+      size -= 2;
+      heroDay.style.fontSize = size + 'px';
+    }
+  }
+  window.addEventListener('resize', fitHero);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHero, function () { /* ignore */ });
 
   // Motion is skipped when the phone asks for reduced motion (and in environments without matchMedia).
   function motionAllowed() {
@@ -1463,23 +1478,47 @@
     remindersEl.insertBefore(box, remindersEl.firstChild);
   }
 
-  function checkForUpdate() {
+  var updateMsg = document.getElementById('update-msg');
+  var checkBtn = document.getElementById('check-update');
+  function setUpdateMessage(text, isError) {
+    if (!updateMsg) return;
+    updateMsg.textContent = text;
+    updateMsg.classList.toggle('is-error', !!isError);
+    updateMsg.classList.toggle('is-ok', !!text && !isError);
+  }
+
+  // manual = true when you press "Check for updates": ignores the 6-hour pause and always reports the result.
+  function checkForUpdate(manual) {
     if (!isNativeApp || !currentBuild || typeof fetch !== 'function') return;
-    var last = 0;
-    try { last = parseInt(localStorage.getItem('todo-update-checked'), 10) || 0; } catch (e) { /* ignore */ }
-    if (Date.now() - last < UPDATE_EVERY_MS) return;
+    if (!manual) {
+      var last = 0;
+      try { last = parseInt(localStorage.getItem('todo-update-checked'), 10) || 0; } catch (e) { /* ignore */ }
+      if (Date.now() - last < UPDATE_EVERY_MS) return;
+    } else {
+      setUpdateMessage('Checking\u2026', false);
+      if (checkBtn) checkBtn.disabled = true;
+    }
     fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         try { localStorage.setItem('todo-update-checked', String(Date.now())); } catch (e) { /* ignore */ }
         var info = updateInfoFromRelease(data);
-        if (!info || info.build <= currentBuild) return;
+        if (!info) { if (manual) setUpdateMessage('Could not read the latest release. Try again later.', true); return; }
+        if (info.build <= currentBuild) {
+          if (manual) setUpdateMessage('You have the latest version' + (window.APP_VERSION ? ' (' + window.APP_VERSION + ')' : '') + '.', false);
+          return;
+        }
         var dismissed = 0;
         try { dismissed = parseInt(localStorage.getItem('todo-update-dismissed'), 10) || 0; } catch (e) { /* ignore */ }
-        if (info.build > dismissed) showUpdateBanner(info);
+        if (manual || info.build > dismissed) showUpdateBanner(info);
+        if (manual) setUpdateMessage('A newer version is available. See the notice at the top.', false);
       })
-      .catch(function () { /* offline or rate-limited: try again next time */ });
+      .catch(function () {
+        if (manual) setUpdateMessage('Could not check right now. Check your internet connection and try again.', true);
+      })
+      .then(function () { if (manual && checkBtn) checkBtn.disabled = false; });
   }
+  if (checkBtn) checkBtn.addEventListener('click', function () { checkForUpdate(true); });
 
   // ---------- Backup and restore ----------
   var backupCopy = document.getElementById('backup-copy');
@@ -1495,7 +1534,10 @@
   function setBackupMessage(message, isError) {
     backupMsg.textContent = message;
     backupMsg.classList.toggle('is-error', !!isError);
+    backupMsg.classList.toggle('is-ok', !!message && !isError);
   }
+
+  function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
   function makeBackupText() {
     return JSON.stringify({ app: 'todo-checklist', version: 2, exportedAt: new Date().toISOString(), tasks: tasks });
@@ -1533,7 +1575,10 @@
       var restored = normalizeTasks(data);
       if (!restored.length && data.length) { setBackupMessage('No usable tasks were found in that backup.', true); return; }
       pendingRestore = restored;
-      backupConfirmText.textContent = 'Replace your ' + tasks.length + ' current tasks with the ' + restored.length + ' tasks in this backup?';
+      backupConfirmText.textContent = tasks.length
+        ? 'Replace your ' + plural(tasks.length, 'current task') + ' with the ' + plural(restored.length, 'task') + ' in this backup?'
+        : 'Restore ' + plural(restored.length, 'task') + ' from this backup?';
+      backupConfirmYes.textContent = tasks.length ? 'Replace' : 'Restore';
       backupConfirm.hidden = false;
       setBackupMessage('', false);
     });
@@ -1556,7 +1601,7 @@
       backupText.value = '';
       saveTasks();
       renderAll();
-      setBackupMessage('Restored ' + tasks.length + ' tasks.', false);
+      setBackupMessage('Restored ' + plural(tasks.length, 'task') + '.', false);
     });
   }
 
@@ -1604,8 +1649,12 @@
     checkReminders();
     scheduleNativeSync();
     if (LN) ensureChannel();
+    var aboutEl = document.getElementById('about');
     var versionEl = document.getElementById('app-version');
-    if (versionEl && isNativeApp && window.APP_VERSION) { versionEl.textContent = 'Cheqlist ' + window.APP_VERSION; versionEl.hidden = false; }
+    if (aboutEl && isNativeApp && window.APP_VERSION) {
+      versionEl.textContent = 'Cheqlist ' + window.APP_VERSION;
+      aboutEl.hidden = false;
+    }
     checkForUpdate();
   }
 
