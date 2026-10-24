@@ -86,6 +86,80 @@ if (manifest.indexOf('USE_EXACT_ALARM') === -1) {
 }
 write(manifestPath, manifest);
 
+var APP_SETTINGS_JAVA = [
+  "package __PACKAGE__;",
+  "",
+  "import android.content.Context;",
+  "import android.content.Intent;",
+  "import android.net.Uri;",
+  "import android.provider.Settings;",
+  "",
+  "import com.getcapacitor.Plugin;",
+  "import com.getcapacitor.PluginCall;",
+  "import com.getcapacitor.PluginMethod;",
+  "import com.getcapacitor.annotation.CapacitorPlugin;",
+  "",
+  "/** Opens this app's notification settings screen (falls back to the app's info screen). */",
+  "@CapacitorPlugin(name = \"AppSettings\")",
+  "public class AppSettingsPlugin extends Plugin {",
+  "",
+  "    @PluginMethod",
+  "    public void openNotificationSettings(PluginCall call) {",
+  "        Context context = getContext();",
+  "        try {",
+  "            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);",
+  "            intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());",
+  "            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);",
+  "            context.startActivity(intent);",
+  "            call.resolve();",
+  "        } catch (Exception first) {",
+  "            try {",
+  "                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,",
+  "                        Uri.fromParts(\"package\", context.getPackageName(), null));",
+  "                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);",
+  "                context.startActivity(intent);",
+  "                call.resolve();",
+  "            } catch (Exception second) {",
+  "                call.reject(\"Could not open the settings screen\");",
+  "            }",
+  "        }",
+  "    }",
+  "}"
+].join('\n') + '\n';
+
+// A tiny native helper so the app can open its own notification settings (used when the phone has stopped
+// showing its permission box). If the generated MainActivity does not look as expected, this is skipped with a
+// warning and the app falls back to written instructions: the build never breaks over it.
+(function addSettingsHelper() {
+  var javaRoot = path.join(main, 'java');
+  var mainActivity = null;
+  (function find(dir) {
+    if (!fs.existsSync(dir)) return;
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(function (e) {
+      var p = path.join(dir, e.name);
+      if (e.isDirectory()) find(p); else if (e.name === 'MainActivity.java') mainActivity = p;
+    });
+  })(javaRoot);
+  if (!mainActivity) { log('WARNING: MainActivity.java not found; skipping the "Open settings" helper'); return; }
+  var src = read(mainActivity);
+  var pkg = /^\s*package\s+([\w.]+)\s*;/m.exec(src);
+  var emptyClass = /public class MainActivity extends BridgeActivity\s*\{\s*\}/;
+  if (src.indexOf('AppSettingsPlugin') !== -1) return; // already patched
+  if (!pkg || !emptyClass.test(src)) { log('WARNING: unexpected MainActivity.java; skipping the "Open settings" helper'); return; }
+  var template = APP_SETTINGS_JAVA;
+  write(path.join(path.dirname(mainActivity), 'AppSettingsPlugin.java'), template.replace('__PACKAGE__', pkg[1]));
+  src = src.replace(emptyClass,
+    'public class MainActivity extends BridgeActivity {\n' +
+    '    @Override\n' +
+    '    public void onCreate(android.os.Bundle savedInstanceState) {\n' +
+    '        registerPlugin(AppSettingsPlugin.class);\n' +
+    '        super.onCreate(savedInstanceState);\n' +
+    '    }\n' +
+    '}');
+  write(mainActivity, src);
+  log('added the "Open settings" helper to ' + pkg[1]);
+})();
+
 // Resources: icons, status-bar icon, splash colour.
 var resSrc = path.join(root, 'android-res');
 var resDst = path.join(main, 'res');
