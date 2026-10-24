@@ -22,8 +22,12 @@ In the old web app: Backup and restore > Copy backup. In the new app: Backup and
 Restore from pasted backup > Replace.
 
 ## Updating later
-Change files in the repo, run the workflow again, download the new APK and open it. It installs over the old
-one and keeps your tasks. This only works if every build is signed with the same key (see below).
+1. Upload the changed files to the repo. The build starts by itself (Actions tab shows it) and publishes a new release.
+2. Next time anyone opens the installed app (and is online), it shows "A new version of Cheqlist is available".
+   Tap Download, open the downloaded file and tap Install. It installs over the old one and keeps the tasks.
+Android does not allow apps to install updates silently, so that one Install tap is always needed.
+The app checks at most once every 6 hours. The version number is shown at the bottom of Backup and restore.
+Updates only install over the old app if every build is signed with the same key (see below).
 
 ## Signing key (important)
 - Without secrets, builds use the key in `android-res/todo-fallback.keystore`. It is public in your repo, so

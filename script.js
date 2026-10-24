@@ -1418,6 +1418,69 @@
     themeMedia.addEventListener('change', function () { if (themeChoice === 'auto') applyTheme(); });
   }
 
+  // ---------- Android app: "update available" notice ----------
+  // The app cannot install updates silently (Android requires you to tap Install), but it can tell you.
+  // On open it asks GitHub (public information, no login or key) whether a newer build was released.
+  var UPDATE_REPO = 'praneethiscool1/Todo';
+  var UPDATE_URL_PREFIX = 'https://github.com/' + UPDATE_REPO + '/releases/download/';
+  var UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+  var currentBuild = parseInt(window.APP_BUILD, 10) || 0;
+
+  function updateInfoFromRelease(data) {
+    if (!data || typeof data.tag_name !== 'string') return null;
+    var m = /^android-v(\d+)$/.exec(data.tag_name);
+    if (!m) return null;
+    var asset = null;
+    (data.assets || []).forEach(function (a) {
+      if (!asset && a && typeof a.browser_download_url === 'string' && /\.apk$/.test(a.browser_download_url) &&
+          a.browser_download_url.indexOf(UPDATE_URL_PREFIX) === 0) asset = a.browser_download_url;
+    });
+    return asset ? { build: parseInt(m[1], 10), url: asset } : null;
+  }
+
+  function showUpdateBanner(info) {
+    var old = document.getElementById('update-banner');
+    if (old) old.remove();
+    var box = el('div', 'banner update');
+    box.id = 'update-banner';
+    var span = el('span');
+    span.textContent = 'A new version of Cheqlist is available. Download it, open the file and tap Install: your tasks stay.';
+    var actions = el('span', 'banner-actions');
+    var link = el('a', 'banner-link');
+    link.href = info.url;
+    link.textContent = 'Download';
+    var later = el('button');
+    later.type = 'button';
+    later.textContent = 'Later';
+    later.addEventListener('click', function () {
+      try { localStorage.setItem('todo-update-dismissed', String(info.build)); } catch (e) { /* ignore */ }
+      box.remove();
+    });
+    actions.appendChild(link);
+    actions.appendChild(later);
+    box.appendChild(span);
+    box.appendChild(actions);
+    remindersEl.insertBefore(box, remindersEl.firstChild);
+  }
+
+  function checkForUpdate() {
+    if (!isNativeApp || !currentBuild || typeof fetch !== 'function') return;
+    var last = 0;
+    try { last = parseInt(localStorage.getItem('todo-update-checked'), 10) || 0; } catch (e) { /* ignore */ }
+    if (Date.now() - last < UPDATE_EVERY_MS) return;
+    fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) {
+        try { localStorage.setItem('todo-update-checked', String(Date.now())); } catch (e) { /* ignore */ }
+        var info = updateInfoFromRelease(data);
+        if (!info || info.build <= currentBuild) return;
+        var dismissed = 0;
+        try { dismissed = parseInt(localStorage.getItem('todo-update-dismissed'), 10) || 0; } catch (e) { /* ignore */ }
+        if (info.build > dismissed) showUpdateBanner(info);
+      })
+      .catch(function () { /* offline or rate-limited: try again next time */ });
+  }
+
   // ---------- Backup and restore ----------
   var backupCopy = document.getElementById('backup-copy');
   var backupText = document.getElementById('backup-text');
@@ -1541,6 +1604,9 @@
     checkReminders();
     scheduleNativeSync();
     if (LN) ensureChannel();
+    var versionEl = document.getElementById('app-version');
+    if (versionEl && isNativeApp && window.APP_VERSION) { versionEl.textContent = 'Cheqlist ' + window.APP_VERSION; versionEl.hidden = false; }
+    checkForUpdate();
   }
 
   renderedToday = todayString();
