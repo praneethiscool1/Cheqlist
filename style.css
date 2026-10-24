@@ -133,9 +133,9 @@ summary:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px 12px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 /* Auto / Light / Dark switch */
@@ -186,12 +186,6 @@ summary:focus-visible {
   font-weight: 800;
   letter-spacing: -0.035em;
   line-height: 0.95;
-}
-.hero-date {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 550;
-  color: var(--muted);
 }
 
 /* ---------- Add form ---------- */

@@ -157,17 +157,11 @@
     return a < b ? 1 : -1;
   }
 
-  // ---------- Header: today's weekday and date ----------
+  // ---------- Header: the app name ----------
   var heroDay = document.getElementById('hero-day');
-  var heroDate = document.getElementById('hero-date');
-  function updateHero() {
-    var now = new Date();
-    if (heroDay) heroDay.textContent = now.toLocaleDateString([], { weekday: 'long' });
-    if (heroDate) heroDate.textContent = now.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
-    fitHero();
-  }
+  function updateHero() { fitHero(); }
 
-  // The weekday is big. On narrow screens or with large system text, shrink it until it fits on one line.
+  // The title is big. On narrow screens or with large system text, shrink it until it fits on one line.
   function fitHero() {
     if (!heroDay) return;
     heroDay.style.fontSize = '';
@@ -1441,7 +1435,7 @@
   // Downloads are only accepted from this GitHub account's release pages. (Checking the account, not the
   // repository name, means renaming the repository again does not break update checks.)
   var UPDATE_URL_PREFIX = 'https://github.com/' + UPDATE_OWNER + '/';
-  var UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+  var RESUME_CHECK_MS = 10 * 60 * 1000; // when the app is brought back from the background, at most every 10 minutes
   var currentBuild = parseInt(window.APP_BUILD, 10) || 0;
 
   function updateInfoFromRelease(data) {
@@ -1494,10 +1488,7 @@
     var later = el('button');
     later.type = 'button';
     later.textContent = 'Later';
-    later.addEventListener('click', function () {
-      try { localStorage.setItem('todo-update-dismissed', String(info.build)); } catch (e) { /* ignore */ }
-      box.remove();
-    });
+    later.addEventListener('click', function () { box.remove(); });
     actions.appendChild(link);
     actions.appendChild(later);
     box.appendChild(span);
@@ -1506,7 +1497,6 @@
   }
 
   var updateMsg = document.getElementById('update-msg');
-  var checkBtn = document.getElementById('check-update');
   function setUpdateMessage(text, isError) {
     if (!updateMsg) return;
     updateMsg.textContent = text;
@@ -1514,38 +1504,30 @@
     updateMsg.classList.toggle('is-ok', !!text && !isError);
   }
 
-  // manual = true when you press "Check for updates": ignores the 6-hour pause and always reports the result.
-  function checkForUpdate(manual) {
+  // Asks GitHub for the newest release every time the app is opened (and when it comes back from the
+  // background, at most every 10 minutes). A newer version shows the notice at the top every time until installed.
+  var lastUpdateCheck = 0;
+  function checkForUpdate() {
     if (!isNativeApp || !currentBuild || typeof fetch !== 'function') return;
-    if (!manual) {
-      var last = 0;
-      try { last = parseInt(localStorage.getItem('todo-update-checked'), 10) || 0; } catch (e) { /* ignore */ }
-      if (Date.now() - last < UPDATE_EVERY_MS) return;
-    } else {
-      setUpdateMessage('Checking\u2026', false);
-      if (checkBtn) checkBtn.disabled = true;
-    }
+    lastUpdateCheck = Date.now();
+    setUpdateMessage('Checking for updates\u2026', false);
     fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
-        try { localStorage.setItem('todo-update-checked', String(Date.now())); } catch (e) { /* ignore */ }
         var info = updateInfoFromRelease(data);
-        if (!info) { if (manual) setUpdateMessage('Could not read the latest release. Try again later.', true); return; }
+        if (!info) { setUpdateMessage('Could not read the latest release.', true); return; }
         if (info.build <= currentBuild) {
-          if (manual) setUpdateMessage('You have the latest version' + (window.APP_VERSION ? ' (' + window.APP_VERSION + ')' : '') + '.', false);
+          setUpdateMessage('You have the latest version' + (window.APP_VERSION ? ' (' + window.APP_VERSION + ')' : '') + '.', false);
           return;
         }
-        var dismissed = 0;
-        try { dismissed = parseInt(localStorage.getItem('todo-update-dismissed'), 10) || 0; } catch (e) { /* ignore */ }
-        if (manual || info.build > dismissed) showUpdateBanner(info);
-        if (manual) setUpdateMessage('A newer version is available. See the notice at the top.', false);
+        showUpdateBanner(info);
+        setUpdateMessage('A newer version is available.', false);
       })
-      .catch(function () {
-        if (manual) setUpdateMessage('Could not check right now. Check your internet connection and try again.', true);
-      })
-      .then(function () { if (manual && checkBtn) checkBtn.disabled = false; });
+      .catch(function () { setUpdateMessage('Could not check for updates (no internet?).', true); });
   }
-  if (checkBtn) checkBtn.addEventListener('click', function () { checkForUpdate(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - lastUpdateCheck > RESUME_CHECK_MS) checkForUpdate();
+  });
 
   // ---------- Backup and restore ----------
   var backupCopy = document.getElementById('backup-copy');
