@@ -34,7 +34,10 @@
     <p class="sr-only">Cheqlist</p>
     <div class="hero-top">
       <h1 id="hero-day" class="hero-day">Cheqlist</h1>
-      <button type="button" id="notify-toggle" class="notify-toggle" role="switch" aria-checked="false" aria-label="Notifications" title="Notifications"><span class="knob"></span></button>
+      <div class="notify-wrap">
+        <button type="button" id="notify-toggle" class="notify-toggle" role="switch" aria-checked="false" aria-label="Notifications" title="Notifications"><span class="knob"></span></button>
+        <label class="notify-caption" for="notify-toggle">Notifications</label>
+      </div>
     </div>
     <div class="hero-row">
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Colour theme">
@@ -95,12 +98,6 @@
     <p id="backup-msg" class="backup-msg" aria-live="polite"></p>
   </details>
 
-  <details class="backup about">
-    <summary>More info</summary>
-    <p class="credit">Developed by creepysteve &amp; sonnet</p>
-    <p class="credit-date">Created on 20th October 2026</p>
-  </details>
-
   <details id="updates" class="backup updates" hidden>
     <summary>Updates</summary>
     <div class="ver-row">
@@ -120,6 +117,12 @@
       </div>
       <p class="update-hint">Open the downloaded file and tap Install. Your tasks stay.</p>
     </div>
+  </details>
+
+  <details class="backup about">
+    <summary>More info</summary>
+    <p class="credit">Developed by creepysteve &amp; sonnet</p>
+    <p class="credit-date">Created on 20th October 2026</p>
   </details>
 </main>
 

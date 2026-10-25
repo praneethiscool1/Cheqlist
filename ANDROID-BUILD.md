@@ -5,7 +5,7 @@ so clearing Chrome's data does not touch it, and it schedules reminders with the
 so they arrive even when the app is closed.
 
 ## One-time setup (about 10 minutes)
-1. Upload everything in this folder to your GitHub repo `Todo`, keeping the folder structure:
+1. Upload everything in this folder to your GitHub repo `Cheqlist`, keeping the folder structure:
    `index.html, style.css, script.js, sw.js, package.json, capacitor.config.json, .gitignore, ANDROID-BUILD.md,`
    `scripts/build-android.js, android-res/ (whole folder), .github/workflows/build-android.yml`
    (On a computer: drag the unzipped contents into GitHub's "Add file > Upload files".

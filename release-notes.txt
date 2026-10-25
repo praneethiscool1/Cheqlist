@@ -1,4 +1,4 @@
-- Add reminder is now time-only (the date comes from the task's date; with no date it is the next time the clock shows it).
-- New in-app calendar and time pickers that match the theme, replacing the phone's grey dialogs.
-- Overdue tasks now light up as a whole red card with a "Overdue - how late" badge.
-- "Developed by" is now a "More info" section.
+- The home-screen icon now follows the app theme: dark icon in dark theme, light icon in light theme (it changes when you leave the app).
+- The bell switch now has a "Notifications" caption, and More info moved to the bottom.
+- Long-pressing text no longer offers "Copy"; typing fields still work normally.
+- Tap the Cheqlist title for a small animation.

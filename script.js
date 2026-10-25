@@ -185,6 +185,33 @@
   var heroDay = document.getElementById('hero-day');
   function updateHero() { fitHero(); }
 
+  // Tapping the title plays a small animation. The letters are wrapped one by one; three effects take turns.
+  if (heroDay) {
+    var titleWord = heroDay.textContent;
+    heroDay.setAttribute('aria-label', titleWord);
+    heroDay.textContent = '';
+    titleWord.split('').forEach(function (ch, i) {
+      var s = document.createElement('span');
+      s.className = 'ch';
+      s.style.setProperty('--i', String(i));
+      s.setAttribute('aria-hidden', 'true');
+      s.textContent = ch;
+      heroDay.appendChild(s);
+    });
+    var titleEffects = ['t-wave', 't-flip', 't-jelly'];
+    var titleNext = 0;
+    var titleTimer = null;
+    heroDay.addEventListener('click', function () {
+      if (!motionAllowed()) return;
+      titleEffects.forEach(function (c) { heroDay.classList.remove(c); });
+      void heroDay.offsetWidth; // lets the same effect restart if you tap quickly
+      heroDay.classList.add(titleEffects[titleNext % titleEffects.length]);
+      titleNext++;
+      clearTimeout(titleTimer);
+      titleTimer = setTimeout(function () { titleEffects.forEach(function (c) { heroDay.classList.remove(c); }); }, 1200);
+    });
+  }
+
   // The title is big. On narrow screens or with large system text, shrink it until it fits on one line.
   function fitHero() {
     if (!heroDay) return;
@@ -1769,6 +1796,25 @@
   if (themeMedia && themeMedia.addEventListener) {
     themeMedia.addEventListener('change', function () { if (themeChoice === 'auto') applyTheme(); });
   }
+
+  // ---------- Android app: the home-screen icon follows the theme ----------
+  // Dark theme -> dark icon, light theme -> light icon. The phone may flicker the home screen while it swaps the icon,
+  // so this happens when you leave the app, not while you are looking at it.
+  var ICON_KEY = 'todo-icon-dark';
+  function syncLauncherIcon() {
+    if (!isNativeApp || !AppSettings) return;
+    var dark = effectiveTheme() === 'dark';
+    var last = null;
+    try { last = localStorage.getItem(ICON_KEY); } catch (e) { /* ignore */ }
+    if (last === (dark ? '1' : '0')) return;
+    try {
+      AppSettings.setLauncherIcon({ dark: dark }).then(function () {
+        try { localStorage.setItem(ICON_KEY, dark ? '1' : '0'); } catch (e) { /* ignore */ }
+      }, function () { /* this build cannot switch icons: keep the normal one */ });
+    } catch (e) { /* ignore */ }
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) syncLauncherIcon(); });
+  window.addEventListener('pagehide', syncLauncherIcon);
 
   // ---------- Android app: "update available" notice ----------
   // The app cannot install updates silently (Android requires you to tap Install), but it can tell you.
