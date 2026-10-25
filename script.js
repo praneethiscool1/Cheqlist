@@ -631,7 +631,7 @@
 
     // ----- time -----
     // Two rollers (hour, minute) that you spin with a finger, and an AM / PM choice.
-    var WHEEL_ITEM = 44; // px, must match .wheel-item in the stylesheet
+    var WHEEL_ITEM = 54; // px, must match .wheel-item in the stylesheet
 
     function makeWheel(labels, start, ariaLabel, onChange) {
       var wheel = el('div', 'wheel');
@@ -1917,8 +1917,51 @@
     document.getElementById('update-new-title').textContent = 'Version 1.' + info.build + ' is available';
     setDateLine('update-new-date', 'Released ', info.date);
     renderNotes(document.getElementById('notes-new'), info.notes);
-    document.getElementById('update-download').href = info.url;
+    var dl = document.getElementById('update-download');
+    dl.href = info.url;
+    if (!dl.dataset.wired) {
+      dl.dataset.wired = '1';
+      dl.addEventListener('click', function (e) { e.preventDefault(); startUpdateDownload(dl); });
+    }
     box.hidden = false;
+  }
+
+  // Download: always exactly one download, and always of the newest release. The link itself never navigates
+  // (so the phone cannot start a second download); instead the newest release is asked for once more and its
+  // file is opened in the phone's browser a single time. Taps while that is in progress are ignored.
+  var downloadBusy = false;
+  var latestKnown = null;
+  function openDownload(url) {
+    if (typeof url !== 'string' || url.indexOf(UPDATE_URL_PREFIX) !== 0 || url.indexOf('/releases/download/') === -1) {
+      setUpdateMessage('That download link did not look right, so it was not opened.', true);
+      return;
+    }
+    function viaPage() { try { window.open(url, '_system'); } catch (e) { window.location.href = url; } }
+    if (AppSettings && AppSettings.openUrl) {
+      try { AppSettings.openUrl({ url: url }).catch(viaPage); } catch (e) { viaPage(); }
+    } else viaPage();
+  }
+  function startUpdateDownload(button) {
+    if (downloadBusy) return;
+    downloadBusy = true;
+    if (button) button.classList.add('is-busy');
+    function done() { setTimeout(function () { downloadBusy = false; if (button) button.classList.remove('is-busy'); }, 4000); }
+    function go(info) { openDownload(info.url); setUpdateMessage('Download started: open the file when it finishes and tap Install.', false); done(); }
+    var fallback = latestKnown;
+    if (typeof fetch !== 'function') { if (fallback) go(fallback); else done(); return; }
+    fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) {
+        var info = updateInfoFromRelease(data);
+        if (!info) throw new Error('no release');
+        if (info.build <= currentBuild) { setUpdateMessage('You already have the latest version.', false); done(); return; }
+        latestKnown = info;
+        go(info);
+      })
+      .catch(function () {
+        if (fallback) go(fallback);
+        else { setUpdateMessage('Could not reach GitHub to start the download. Try again.', true); done(); }
+      });
   }
 
   function showUpdateBanner(info) {
@@ -1933,6 +1976,7 @@
     var link = el('a', 'banner-link');
     link.href = info.url;
     link.textContent = 'Download';
+    link.addEventListener('click', function (e) { e.preventDefault(); startUpdateDownload(link); });
     var later = el('button');
     later.type = 'button';
     later.textContent = 'Later';
@@ -1968,6 +2012,7 @@
           setUpdateMessage('You have the latest version' + (window.APP_VERSION ? ' (' + window.APP_VERSION + ')' : '') + '.', false);
           return;
         }
+        latestKnown = info;
         showUpdateBanner(info);
         setUpdateMessage('A newer version is available.', false);
       })

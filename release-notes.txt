@@ -1,2 +1,3 @@
-- The logo now sits next to the Cheqlist title; tap it for a little animation. It follows light and dark.
-- The reminder time is now set with two simple rollers (hour and minute) and an AM / PM choice.
+- The reminder time rollers are bigger, and the colon now sits close to the hour and minute.
+- The logo next to the title is a little bigger and closer to the name.
+- Updating: Download now opens the newest version exactly once (no second download).
