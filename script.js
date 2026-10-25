@@ -187,21 +187,36 @@
 
   // Tapping the title plays a small animation. The letters are wrapped one by one; three effects take turns.
   if (heroDay) {
-    var titleWord = heroDay.textContent;
+    var wordEl = heroDay.querySelector('.brand-word') || heroDay;
+    var titleWord = wordEl.textContent;
     heroDay.setAttribute('aria-label', titleWord);
-    heroDay.textContent = '';
+    wordEl.textContent = '';
     titleWord.split('').forEach(function (ch, i) {
       var s = document.createElement('span');
       s.className = 'ch';
       s.style.setProperty('--i', String(i));
       s.setAttribute('aria-hidden', 'true');
       s.textContent = ch;
-      heroDay.appendChild(s);
+      wordEl.appendChild(s);
     });
     var titleEffects = ['t-wave', 't-flip', 't-jelly'];
     var titleNext = 0;
     var titleTimer = null;
-    heroDay.addEventListener('click', function () {
+    var logoEffects = ['l-pop', 'l-spin', 'l-draw'];
+    var logoNext = 0;
+    var logoTimer = null;
+    var logoEl = heroDay.querySelector('.brand-logo');
+    function playLogo() {
+      if (!logoEl || !motionAllowed()) return;
+      logoEffects.forEach(function (c) { logoEl.classList.remove(c); });
+      void logoEl.getBoundingClientRect(); // lets the same effect restart if you tap quickly
+      logoEl.classList.add(logoEffects[logoNext % logoEffects.length]);
+      logoNext++;
+      clearTimeout(logoTimer);
+      logoTimer = setTimeout(function () { logoEffects.forEach(function (c) { logoEl.classList.remove(c); }); }, 1100);
+    }
+    heroDay.addEventListener('click', function (e) {
+      if (e.target && e.target.closest && e.target.closest('.brand-logo')) { playLogo(); return; }
       if (!motionAllowed()) return;
       titleEffects.forEach(function (c) { heroDay.classList.remove(c); });
       void heroDay.offsetWidth; // lets the same effect restart if you tap quickly
@@ -218,7 +233,7 @@
     heroDay.style.fontSize = '';
     var size = parseFloat(window.getComputedStyle(heroDay).fontSize) || 0;
     var guard = 0;
-    while (size > 26 && heroDay.scrollWidth > heroDay.clientWidth + 1 && guard++ < 40) {
+    while (size > 18 && heroDay.scrollWidth > heroDay.clientWidth + 1 && guard++ < 40) {
       size -= 2;
       heroDay.style.fontSize = size + 'px';
     }
@@ -510,7 +525,7 @@
         sub.textContent = opts.sub;
         body.appendChild(sub);
       }
-      render(body);
+      var afterShown = render(body);
       root.hidden = false;
       void root.offsetWidth; // so the slide-in animation runs from the closed position
       root.classList.add('open');
@@ -518,7 +533,8 @@
         try { history.pushState({ sheet: 1 }, ''); pushed = true; } catch (e) { pushed = false; }
       }
       isOpen = true;
-      var first = body.querySelector('.is-selected, .cal-day.is-today, .tp-hour.is-selected, button:not([disabled])');
+      if (typeof afterShown === 'function') afterShown();
+      var first = body.querySelector('.sheet-chip.is-selected, .cal-day.is-selected, .cal-day.is-today, .tp-seg.is-selected, button:not([disabled])');
       if (first && first.focus) { try { first.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
     }
 
@@ -614,6 +630,58 @@
     }
 
     // ----- time -----
+    // Two rollers (hour, minute) that you spin with a finger, and an AM / PM choice.
+    var WHEEL_ITEM = 44; // px, must match .wheel-item in the stylesheet
+
+    function makeWheel(labels, start, ariaLabel, onChange) {
+      var wheel = el('div', 'wheel');
+      wheel.setAttribute('role', 'listbox');
+      wheel.setAttribute('aria-label', ariaLabel);
+      wheel.tabIndex = 0;
+      var index = start;
+      var items = labels.map(function (text, i) {
+        var it = el('div', 'wheel-item');
+        it.setAttribute('role', 'option');
+        it.textContent = text;
+        it.addEventListener('click', function () { choose(i, true); });
+        wheel.appendChild(it);
+        return it;
+      });
+      function paint() {
+        items.forEach(function (it, i) {
+          it.classList.toggle('is-selected', i === index);
+          it.setAttribute('aria-selected', i === index ? 'true' : 'false');
+        });
+      }
+      function scrollTo(i, smooth) {
+        var top = i * WHEEL_ITEM;
+        try {
+          if (smooth && typeof wheel.scrollTo === 'function' && motionAllowed()) wheel.scrollTo({ top: top, behavior: 'smooth' });
+          else wheel.scrollTop = top;
+        } catch (e) { wheel.scrollTop = top; }
+      }
+      function choose(i, scroll) {
+        i = Math.max(0, Math.min(labels.length - 1, i));
+        var changed = i !== index;
+        index = i;
+        paint();
+        if (scroll) scrollTo(i, true);
+        if (changed) onChange(i);
+      }
+      // Spinning the roller: the item resting in the middle is the chosen one.
+      wheel.addEventListener('scroll', function () {
+        var i = Math.round(wheel.scrollTop / WHEEL_ITEM);
+        i = Math.max(0, Math.min(labels.length - 1, i));
+        if (i !== index) { index = i; paint(); onChange(i); }
+      });
+      wheel.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); choose(index + 1, true); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); choose(index - 1, true); }
+      });
+      paint();
+      return { el: wheel, get: function () { return index; }, place: function () { scrollTo(index, false); } };
+    }
+
     function openTime(opts) {
       show(opts, function (box) {
         var min = opts.min || '';
@@ -629,45 +697,31 @@
         }
         function value24() { return pad2((h % 12) + (pm ? 12 : 0)) + ':' + pad2(m); }
 
-        var read = el('div', 'tp-read');
-        var rh = el('span', 'tp-h'), colon = el('span', 'tp-colon'), rm = el('span', 'tp-m');
+        var roller = el('div', 'tp-roller');
+        var hourLabels = [], minuteLabels = [];
+        for (var i = 1; i <= 12; i++) hourLabels.push(String(i));
+        for (var k = 0; k < 60; k++) minuteLabels.push(pad2(k));
+        var hourWheel = makeWheel(hourLabels, h - 1, 'Hour', function (idx) { h = idx + 1; paint(); });
+        var minuteWheel = makeWheel(minuteLabels, m, 'Minute', function (idx) { m = idx; paint(); });
+        hourWheel.el.classList.add('wheel-hour');
+        minuteWheel.el.classList.add('wheel-minute');
+        var colon = el('span', 'tp-colon');
         colon.textContent = ':';
         var seg = el('div', 'tp-ampm');
         var am = button('tp-seg', 'AM', function () { pm = false; paint(); });
         var pmBtn = button('tp-seg', 'PM', function () { pm = true; paint(); });
         seg.appendChild(am); seg.appendChild(pmBtn);
-        read.appendChild(rh); read.appendChild(colon); read.appendChild(rm); read.appendChild(seg);
-        box.appendChild(read);
+        var wheels = el('div', 'tp-wheels');
+        wheels.appendChild(hourWheel.el);
+        wheels.appendChild(colon);
+        wheels.appendChild(minuteWheel.el);
+        roller.appendChild(wheels);
+        roller.appendChild(seg);
+        box.appendChild(roller);
 
         var hint = el('p', 'tp-hint');
         hint.setAttribute('aria-live', 'polite');
         box.appendChild(hint);
-
-        var hl = el('p', 'tp-label'); hl.textContent = 'Hour';
-        box.appendChild(hl);
-        var hours = el('div', 'tp-grid');
-        var hourBtns = [];
-        for (var i = 1; i <= 12; i++) (function (n) {
-          var b = button('tp-chip tp-hour', String(n), function () { h = n; paint(); });
-          hourBtns.push(b); hours.appendChild(b);
-        })(i);
-        box.appendChild(hours);
-
-        var mrow = el('div', 'tp-label-row');
-        var ml = el('p', 'tp-label'); ml.textContent = 'Minute';
-        var minus = button('tp-step', '−', function () { m = (m + 59) % 60; paint(); });
-        minus.setAttribute('aria-label', 'One minute earlier');
-        var plus = button('tp-step', '+', function () { m = (m + 1) % 60; paint(); });
-        plus.setAttribute('aria-label', 'One minute later');
-        mrow.appendChild(ml); mrow.appendChild(minus); mrow.appendChild(plus);
-        box.appendChild(mrow);
-        var mins = el('div', 'tp-grid');
-        var minBtns = [];
-        for (var k = 0; k < 60; k += 5) (function (n) {
-          var b = button('tp-chip tp-min', pad2(n), function () { m = n; paint(); });
-          minBtns.push([n, b]); mins.appendChild(b);
-        })(k);
-        box.appendChild(mins);
 
         var actions = el('div', 'sheet-actions');
         if (isTimeString(opts.value) && opts.onClear) actions.appendChild(button('sheet-btn sheet-btn-danger', 'Clear', function () { close(); opts.onClear(); }));
@@ -682,27 +736,17 @@
         actions.appendChild(set);
         box.appendChild(actions);
 
-        function bump(node) {
-          if (calmMotion()) return;
-          node.classList.remove('tick'); void node.offsetWidth; node.classList.add('tick');
-        }
-        var lastH = null, lastM = null;
         function paint() {
-          rh.textContent = String(h);
-          rm.textContent = pad2(m);
-          if (lastH !== null && lastH !== h) bump(rh);
-          if (lastM !== null && lastM !== m) bump(rm);
-          lastH = h; lastM = m;
           am.classList.toggle('is-selected', !pm); pmBtn.classList.toggle('is-selected', pm);
           am.setAttribute('aria-pressed', pm ? 'false' : 'true'); pmBtn.setAttribute('aria-pressed', pm ? 'true' : 'false');
-          hourBtns.forEach(function (b, idx) { b.classList.toggle('is-selected', idx + 1 === h); });
-          minBtns.forEach(function (p) { p[1].classList.toggle('is-selected', p[0] === m); });
           var bad = !!min && value24() < min;
           set.disabled = bad;
           hint.textContent = bad ? 'That time has already passed. Pick one that is still ahead.' : '';
           hint.classList.toggle('is-bad', bad);
         }
         paint();
+        // The rollers can only be positioned once the sheet is on screen.
+        return function afterShown() { hourWheel.place(); minuteWheel.place(); };
       });
     }
 
