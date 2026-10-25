@@ -416,24 +416,309 @@
     return box;
   }
 
+  // ---------- Date and time pickers (in-app sheets) ----------
+  // Tapping "Add date" or "Add reminder" opens a bottom sheet drawn by the app itself, so it follows the
+  // light/dark theme and the app's animations (the phone's own dialog cannot be styled). The pill still owns a
+  // hidden <input> that holds the value, so everything downstream works exactly as before.
+  var picker = (function () {
+    var root = null, sheet = null, body = null;
+    var isOpen = false, closeTimer = null, pushed = false, ignorePop = false, opener = null;
+
+    function calmMotion() { return !motionAllowed(); }
+
+    function build() {
+      root = el('div', 'sheet-root');
+      root.hidden = true;
+      var backdrop = el('div', 'sheet-backdrop');
+      sheet = el('div', 'sheet');
+      sheet.setAttribute('role', 'dialog');
+      sheet.setAttribute('aria-modal', 'true');
+      body = el('div', 'sheet-body');
+      sheet.appendChild(el('div', 'sheet-grab'));
+      sheet.appendChild(body);
+      root.appendChild(backdrop);
+      root.appendChild(sheet);
+      document.body.appendChild(root);
+      backdrop.addEventListener('click', close);
+      document.addEventListener('keydown', function (e) { if (isOpen && e.key === 'Escape') close(); });
+      // The phone's back button closes the sheet instead of leaving the app.
+      window.addEventListener('popstate', function () {
+        if (ignorePop) { ignorePop = false; return; }
+        if (isOpen) { pushed = false; hide(); }
+      });
+    }
+
+    function hide() {
+      if (!isOpen) return;
+      isOpen = false;
+      root.classList.remove('open');
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(function () { root.hidden = true; body.textContent = ''; }, calmMotion() ? 0 : 320);
+      var back = opener;
+      opener = null;
+      if (back && back.focus && document.contains(back)) { try { back.focus(); } catch (e) { /* ignore */ } }
+    }
+
+    function close() {
+      if (!isOpen) return;
+      hide();
+      if (pushed) {
+        pushed = false;
+        ignorePop = true;
+        setTimeout(function () { ignorePop = false; }, 600);
+        try { history.back(); } catch (e) { ignorePop = false; }
+      }
+    }
+
+    function show(opts, render) {
+      if (!root) build();
+      clearTimeout(closeTimer);
+      opener = document.activeElement;
+      body.textContent = '';
+      var title = el('h2', 'sheet-title');
+      title.textContent = opts.title;
+      body.appendChild(title);
+      if (opts.sub) {
+        var sub = el('p', 'sheet-sub');
+        sub.textContent = opts.sub;
+        body.appendChild(sub);
+      }
+      render(body);
+      root.hidden = false;
+      void root.offsetWidth; // so the slide-in animation runs from the closed position
+      root.classList.add('open');
+      if (!isOpen && !pushed) {
+        try { history.pushState({ sheet: 1 }, ''); pushed = true; } catch (e) { pushed = false; }
+      }
+      isOpen = true;
+      var first = body.querySelector('.is-selected, .cal-day.is-today, .tp-hour.is-selected, button:not([disabled])');
+      if (first && first.focus) { try { first.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+    }
+
+    function button(cls, text, onClick) {
+      var b = el('button', cls);
+      b.type = 'button';
+      b.textContent = text;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    // ----- calendar -----
+    var MONTH_FMT = { month: 'long', year: 'numeric' };
+    function addDays(dateStr, n) {
+      var d = parseDateString(dateStr);
+      d.setDate(d.getDate() + n);
+      return localDateString(d);
+    }
+
+    function openDate(opts) {
+      show(opts, function (box) {
+        var today = todayString();
+        var min = opts.min || '';
+        var selected = isDateString(opts.value) ? opts.value : '';
+        var base = (selected && selected >= today) ? selected : today;
+        var viewY = +base.slice(0, 4), viewM = +base.slice(5, 7) - 1;
+
+        function choose(date, btn) {
+          if (min && date < min) return;
+          if (btn) btn.classList.add('is-picked');
+          var done = function () { close(); opts.onPick(date); };
+          if (calmMotion()) done(); else setTimeout(done, 170);
+        }
+
+        var chips = el('div', 'sheet-chips');
+        [['Today', today], ['Tomorrow', addDays(today, 1)], ['In a week', addDays(today, 7)]].forEach(function (c) {
+          var b = button('sheet-chip' + (selected === c[1] ? ' is-selected' : ''), c[0], function () { choose(c[1], b); });
+          chips.appendChild(b);
+        });
+        box.appendChild(chips);
+
+        var head = el('div', 'cal-head');
+        var prev = button('cal-nav cal-prev', '', function () { viewM--; if (viewM < 0) { viewM = 11; viewY--; } paint(true); });
+        prev.setAttribute('aria-label', 'Previous month');
+        var label = el('div', 'cal-month');
+        label.setAttribute('aria-live', 'polite');
+        var next = button('cal-nav cal-next', '', function () { viewM++; if (viewM > 11) { viewM = 0; viewY++; } paint(true); });
+        next.setAttribute('aria-label', 'Next month');
+        head.appendChild(prev); head.appendChild(label); head.appendChild(next);
+        box.appendChild(head);
+
+        var dow = el('div', 'cal-dow');
+        ['S', 'M', 'T', 'W', 'T', 'F', 'S'].forEach(function (d) { var s = el('span'); s.textContent = d; dow.appendChild(s); });
+        box.appendChild(dow);
+        var grid = el('div', 'cal-grid');
+        box.appendChild(grid);
+
+        function paint(animate) {
+          label.textContent = new Date(viewY, viewM, 1).toLocaleDateString('en-GB', MONTH_FMT);
+          var minYM = min ? +min.slice(0, 4) * 12 + (+min.slice(5, 7) - 1) : -1;
+          prev.disabled = minYM >= 0 && viewY * 12 + viewM <= minYM;
+          grid.textContent = '';
+          var first = new Date(viewY, viewM, 1).getDay();
+          var count = new Date(viewY, viewM + 1, 0).getDate();
+          for (var i = 0; i < first; i++) grid.appendChild(el('span', 'cal-blank'));
+          for (var day = 1; day <= count; day++) {
+            var ds = viewY + '-' + pad2(viewM + 1) + '-' + pad2(day);
+            var b = el('button', 'cal-day' + (ds === today ? ' is-today' : '') + (ds === selected ? ' is-selected' : ''));
+            b.type = 'button';
+            b.textContent = String(day);
+            b.dataset.date = ds;
+            b.setAttribute('aria-label', formatDayShort(ds));
+            if (ds === selected) b.setAttribute('aria-pressed', 'true');
+            if (min && ds < min) b.disabled = true;
+            else (function (date, btn) { btn.addEventListener('click', function () { choose(date, btn); }); })(ds, b);
+            grid.appendChild(b);
+          }
+          if (animate && !calmMotion()) {
+            grid.classList.remove('swap');
+            void grid.offsetWidth;
+            grid.classList.add('swap');
+          }
+        }
+        paint(false);
+
+        var actions = el('div', 'sheet-actions');
+        if (selected && opts.onClear) actions.appendChild(button('sheet-btn sheet-btn-danger', 'Clear', function () { close(); opts.onClear(); }));
+        var spacer = el('span', 'sheet-spacer');
+        actions.appendChild(spacer);
+        actions.appendChild(button('sheet-btn', 'Close', close));
+        box.appendChild(actions);
+      });
+    }
+
+    // ----- time -----
+    function openTime(opts) {
+      show(opts, function (box) {
+        var min = opts.min || '';
+        var h = 9, m = 0, pm = false;
+        if (isTimeString(opts.value)) {
+          var h24 = +opts.value.slice(0, 2);
+          pm = h24 >= 12; h = (h24 % 12) || 12; m = +opts.value.slice(3, 5);
+        } else {
+          var d = new Date(Date.now() + 30 * 60000);       // a sensible start: about half an hour from now
+          d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+          var hh = d.getHours();
+          pm = hh >= 12; h = (hh % 12) || 12; m = d.getMinutes();
+        }
+        function value24() { return pad2((h % 12) + (pm ? 12 : 0)) + ':' + pad2(m); }
+
+        var read = el('div', 'tp-read');
+        var rh = el('span', 'tp-h'), colon = el('span', 'tp-colon'), rm = el('span', 'tp-m');
+        colon.textContent = ':';
+        var seg = el('div', 'tp-ampm');
+        var am = button('tp-seg', 'AM', function () { pm = false; paint(); });
+        var pmBtn = button('tp-seg', 'PM', function () { pm = true; paint(); });
+        seg.appendChild(am); seg.appendChild(pmBtn);
+        read.appendChild(rh); read.appendChild(colon); read.appendChild(rm); read.appendChild(seg);
+        box.appendChild(read);
+
+        var hint = el('p', 'tp-hint');
+        hint.setAttribute('aria-live', 'polite');
+        box.appendChild(hint);
+
+        var hl = el('p', 'tp-label'); hl.textContent = 'Hour';
+        box.appendChild(hl);
+        var hours = el('div', 'tp-grid');
+        var hourBtns = [];
+        for (var i = 1; i <= 12; i++) (function (n) {
+          var b = button('tp-chip tp-hour', String(n), function () { h = n; paint(); });
+          hourBtns.push(b); hours.appendChild(b);
+        })(i);
+        box.appendChild(hours);
+
+        var mrow = el('div', 'tp-label-row');
+        var ml = el('p', 'tp-label'); ml.textContent = 'Minute';
+        var minus = button('tp-step', '−', function () { m = (m + 59) % 60; paint(); });
+        minus.setAttribute('aria-label', 'One minute earlier');
+        var plus = button('tp-step', '+', function () { m = (m + 1) % 60; paint(); });
+        plus.setAttribute('aria-label', 'One minute later');
+        mrow.appendChild(ml); mrow.appendChild(minus); mrow.appendChild(plus);
+        box.appendChild(mrow);
+        var mins = el('div', 'tp-grid');
+        var minBtns = [];
+        for (var k = 0; k < 60; k += 5) (function (n) {
+          var b = button('tp-chip tp-min', pad2(n), function () { m = n; paint(); });
+          minBtns.push([n, b]); mins.appendChild(b);
+        })(k);
+        box.appendChild(mins);
+
+        var actions = el('div', 'sheet-actions');
+        if (isTimeString(opts.value) && opts.onClear) actions.appendChild(button('sheet-btn sheet-btn-danger', 'Clear', function () { close(); opts.onClear(); }));
+        actions.appendChild(el('span', 'sheet-spacer'));
+        actions.appendChild(button('sheet-btn', 'Cancel', close));
+        var set = button('sheet-btn sheet-btn-primary', 'Set', function () {
+          var v = value24();
+          if (min && v < min) return;
+          close();
+          opts.onPick(v);
+        });
+        actions.appendChild(set);
+        box.appendChild(actions);
+
+        function bump(node) {
+          if (calmMotion()) return;
+          node.classList.remove('tick'); void node.offsetWidth; node.classList.add('tick');
+        }
+        var lastH = null, lastM = null;
+        function paint() {
+          rh.textContent = String(h);
+          rm.textContent = pad2(m);
+          if (lastH !== null && lastH !== h) bump(rh);
+          if (lastM !== null && lastM !== m) bump(rm);
+          lastH = h; lastM = m;
+          am.classList.toggle('is-selected', !pm); pmBtn.classList.toggle('is-selected', pm);
+          am.setAttribute('aria-pressed', pm ? 'false' : 'true'); pmBtn.setAttribute('aria-pressed', pm ? 'true' : 'false');
+          hourBtns.forEach(function (b, idx) { b.classList.toggle('is-selected', idx + 1 === h); });
+          minBtns.forEach(function (p) { p[1].classList.toggle('is-selected', p[0] === m); });
+          var bad = !!min && value24() < min;
+          set.disabled = bad;
+          hint.textContent = bad ? 'That time has already passed. Pick one that is still ahead.' : '';
+          hint.classList.toggle('is-bad', bad);
+        }
+        paint();
+      });
+    }
+
+    return {
+      open: function (opts) { if (opts.kind === 'date') openDate(opts); else openTime(opts); },
+      close: close,
+      isOpen: function () { return isOpen; }
+    };
+  })();
+
   // ---------- Date and reminder "pills" ----------
   // A pill is a rounded button showing a value. The real date/time input sits invisibly on top,
   // so tapping the pill opens the phone's own picker. An optional x button clears the value.
   function makePill(o) {
     var wrap = el('span', 'pill-wrap');
-    var pill = el('label', 'pill kind-' + o.inputType + (o.set ? ' is-set' : '') + (o.overdue ? ' is-overdue' : ''));
+    var pill = el('span', 'pill kind-' + o.inputType + (o.set ? ' is-set' : '') + (o.overdue ? ' is-overdue' : ''));
+    pill.setAttribute('role', 'button');
+    pill.tabIndex = 0;
+    pill.setAttribute('aria-label', o.label);
     var text = el('span', 'pill-text');
     text.textContent = o.text;
+    // Holds the value (a date "2026-10-25" or a time "18:30"). Never shown: the app's own sheet is the picker.
     var input = el('input');
     input.type = o.inputType;
     input.value = o.inputValue || '';
-    input.setAttribute('aria-label', o.label);
-    function applyMin() { var m = o.min ? o.min() : ''; if (m) input.min = m; else input.removeAttribute('min'); }
-    applyMin();
+    input.hidden = true;
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
     input.addEventListener('change', function () { o.onChange(input.value); });
-    pill.addEventListener('click', function () {
-      applyMin(); // the earliest allowed time moves forward as the clock does
-      try { if (input.showPicker) input.showPicker(); } catch (e) { /* the native input still works */ }
+    function openPicker() {
+      picker.open({
+        kind: o.inputType,
+        title: o.sheetTitle,
+        sub: o.sub ? o.sub() : '',
+        value: input.value,
+        min: o.min ? o.min() : '',
+        onPick: function (v) { input.value = v; o.onChange(v); },
+        onClear: o.set && o.onClear ? o.onClear : null
+      });
+    }
+    pill.addEventListener('click', openPicker);
+    pill.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
     });
     pill.appendChild(text);
     pill.appendChild(input);
@@ -442,7 +727,7 @@
     if (o.set && o.onClear) {
       var x = el('button', 'pill-x');
       x.type = 'button';
-      x.textContent = '×';
+      x.textContent = '\u00d7';
       x.title = o.clearLabel;
       x.setAttribute('aria-label', o.clearLabel);
       x.addEventListener('click', o.onClear);
@@ -460,16 +745,21 @@
     return b;
   }
 
-  // Turns what the reminder input gave us into a full 'YYYY-MM-DDTHH:MM'.
-  // Returns '' (cleared), a string (valid) or null (not usable).
-  function parseReminderInput(date, value, timeOnly) {
+  // Turns what the reminder picker gave us (a time like "18:30") into a full 'YYYY-MM-DDTHH:MM'.
+  // With a task date the reminder is on that date. Without one it is the next time the clock shows that time:
+  // today if it is still ahead, otherwise tomorrow. Returns '' (cleared), a string (valid) or null (not usable).
+  function parseReminderInput(date, value) {
     if (!value) return '';
-    if (timeOnly) {
-      if (/^\d{2}:\d{2}:\d{2}$/.test(value)) value = value.slice(0, 5);
-      if (!date || !isTimeString(value)) return null;
-      return date + 'T' + value;
+    if (/^\d{2}:\d{2}:\d{2}$/.test(value)) value = value.slice(0, 5);
+    if (isTimeString(value)) {
+      if (date) return date + 'T' + value;
+      var today = todayString() + 'T' + value;
+      if (reminderMs(today) > Date.now()) return today;
+      var t = new Date();
+      t.setDate(t.getDate() + 1);
+      return localDateString(t) + 'T' + value;
     }
-    return normalizeReminder(value) || null;
+    return normalizeReminder(value) || null; // a full date and time is still accepted
   }
 
   // Moves a reminder onto a new date, keeping its time. Returns '' when the result is already in the past.
@@ -478,6 +768,9 @@
     return reminderMs(shifted) > Date.now() ? shifted : '';
   }
 
+  function reminderSub(date) {
+    return date ? 'On ' + formatDayShort(date) : 'The next time the clock shows it (today, or tomorrow if it has passed)';
+  }
   var PAST_MESSAGE = 'That time has already passed. Pick a time that is still ahead.';
   var PAST_DATE_MESSAGE = 'You can only pick today or a later date.';
   function isPastDate(date) { return !!date && date < todayString(); }
@@ -485,7 +778,6 @@
   // Reminder inputs: with a task date, only a time (and for today only a time still ahead);
   // without one, a date and time that are still ahead.
   function minTimeFor(date) { return date === todayString() ? localTimeString(nextMinuteDate()) : ''; }
-  function minDateTime() { var d = nextMinuteDate(); return localDateString(d) + 'T' + localTimeString(d); }
 
   // ---------- The "new task" form ----------
   var newColorPicker = makeColorPicker(null, function (color) { draft.color = color; });
@@ -508,7 +800,6 @@
 
   function renderDraftControls() {
     draftSlot.textContent = '';
-    var timeOnly = !!draft.date;
 
     var datePill = makePill({
       text: draft.date ? formatDayShort(draft.date) : 'Add date',
@@ -516,6 +807,7 @@
       inputType: 'date',
       inputValue: draft.date,
       label: 'Task date (optional)',
+      sheetTitle: 'Pick a date',
       clearLabel: 'Remove date',
       min: minDate,
       onChange: function (v) { setDraftDate(isDateString(v) ? v : ''); },
@@ -525,13 +817,15 @@
     var reminderPill = makePill({
       text: draft.reminder ? reminderLabel(draft) : 'Add reminder',
       set: !!draft.reminder,
-      inputType: timeOnly ? 'time' : 'datetime-local',
-      inputValue: draft.reminder ? (timeOnly ? timePart(draft.reminder) : draft.reminder) : '',
-      label: timeOnly ? 'Reminder time (optional)' : 'Reminder date and time (optional)',
+      inputType: 'time',
+      inputValue: draft.reminder ? timePart(draft.reminder) : '',
+      label: 'Reminder time (optional)',
+      sheetTitle: 'Reminder time',
+      sub: function () { return reminderSub(draft.date); },
       clearLabel: 'Remove reminder',
-      min: timeOnly ? function () { return minTimeFor(draft.date); } : minDateTime,
+      min: function () { return minTimeFor(draft.date); },
       onChange: function (v) {
-        var r = parseReminderInput(draft.date, v, timeOnly);
+        var r = parseReminderInput(draft.date, v);
         if (r === null) { renderDraftControls(); return; }
         if (r && reminderMs(r) <= Date.now()) { addBanner(PAST_MESSAGE, 'warn'); renderDraftControls(); return; }
         draft.reminder = r;
@@ -633,8 +927,8 @@
     renderAll();
   }
 
-  function changeTaskReminder(task, value, timeOnly) {
-    var r = parseReminderInput(task.date, value, timeOnly);
+  function changeTaskReminder(task, value) {
+    var r = parseReminderInput(task.date, value);
     if (r === null) { renderAll(); return; }
     if (r && reminderMs(r) <= Date.now()) {
       addBanner(PAST_MESSAGE, 'warn');
@@ -649,6 +943,16 @@
   }
 
   // ---------- Drawing one task row ----------
+  // "5 min late", "3 h late", "2 days late"
+  function lateText(ms) {
+    var min = Math.max(1, Math.floor(ms / 60000));
+    if (min < 60) return min + ' min late';
+    var hrs = Math.floor(min / 60);
+    if (hrs < 24) return hrs + ' h late';
+    var days = Math.floor(hrs / 24);
+    return days + (days === 1 ? ' day late' : ' days late');
+  }
+
   function isOverdue(task) {
     var due = deadlineMs(task);
     return !task.done && !isNaN(due) && due <= Date.now();
@@ -704,23 +1008,25 @@
       inputType: 'date',
       inputValue: task.date,
       label: 'Task date (optional)',
+      sheetTitle: 'Pick a date',
       clearLabel: 'Remove date',
       min: minDate,
       onChange: function (v) { changeTaskDate(task, v); },
       onClear: function () { changeTaskDate(task, ''); }
     });
 
-    var timeOnly = !!task.date;
     var reminderPill = makePill({
       text: task.reminder ? reminderLabel(task) : 'Add reminder',
       set: !!task.reminder,
       overdue: isOverdue(task),
-      min: timeOnly ? function () { return minTimeFor(task.date); } : minDateTime,
-      inputType: timeOnly ? 'time' : 'datetime-local',
-      inputValue: task.reminder ? (timeOnly ? timePart(task.reminder) : task.reminder) : '',
-      label: timeOnly ? 'Reminder time (optional)' : 'Reminder date and time (optional)',
+      sheetTitle: 'Reminder time',
+      sub: function () { return reminderSub(task.date); },
+      min: function () { return minTimeFor(task.date); },
+      inputType: 'time',
+      inputValue: task.reminder ? timePart(task.reminder) : '',
+      label: 'Reminder time (optional)',
       clearLabel: 'Remove reminder',
-      onChange: function (v) { changeTaskReminder(task, v, timeOnly); },
+      onChange: function (v) { changeTaskReminder(task, v); },
       onClear: function () {
         task.reminder = '';
         task.notified = false;
@@ -755,6 +1061,7 @@
       reminderPill.pill.classList.toggle('is-overdue', overdue);
       datePill.pill.classList.toggle('is-overdue', overdue);
       overdueBadge.hidden = !overdue;
+      if (overdue) overdueBadge.textContent = 'Overdue \u00b7 ' + lateText(Date.now() - deadlineMs(task));
     }
     li.paintRow = paintRow;
 

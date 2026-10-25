@@ -1,3 +1,4 @@
-- The app icon is now the same logo as the opening screen, and the opening screen lasts 2.5 seconds.
-- If notifications were denied, the bell now shows an "Open settings" button that jumps straight to Cheqlist's notification settings, and turns itself on when you come back.
-- The drop-down boxes at the bottom now have equal gaps.
+- Add reminder is now time-only (the date comes from the task's date; with no date it is the next time the clock shows it).
+- New in-app calendar and time pickers that match the theme, replacing the phone's grey dialogs.
+- Overdue tasks now light up as a whole red card with a "Overdue - how late" badge.
+- "Developed by" is now a "More info" section.
