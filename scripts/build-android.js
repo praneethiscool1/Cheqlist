@@ -89,8 +89,10 @@ write(manifestPath, manifest);
 var APP_SETTINGS_JAVA = [
   "package __PACKAGE__;",
   "",
+  "import android.content.ComponentName;",
   "import android.content.Context;",
   "import android.content.Intent;",
+  "import android.content.pm.PackageManager;",
   "import android.net.Uri;",
   "import android.provider.Settings;",
   "",
@@ -122,6 +124,26 @@ var APP_SETTINGS_JAVA = [
   "            } catch (Exception second) {",
   "                call.reject(\"Could not open the settings screen\");",
   "            }",
+  "        }",
+  "    }",
+  "",
+  "    /** Switches the home-screen icon between the light and the dark version (two launcher entries, one enabled at a time). */",
+  "    @PluginMethod",
+  "    public void setLauncherIcon(PluginCall call) {",
+  "        Boolean dark = call.getBoolean(\"dark\", false);",
+  "        try {",
+  "            Context context = getContext();",
+  "            PackageManager pm = context.getPackageManager();",
+  "            String base = AppSettingsPlugin.class.getPackage().getName();",
+  "            ComponentName light = new ComponentName(context, base + \".LauncherLight\");",
+  "            ComponentName night = new ComponentName(context, base + \".LauncherDark\");",
+  "            ComponentName on = Boolean.TRUE.equals(dark) ? night : light;",
+  "            ComponentName off = Boolean.TRUE.equals(dark) ? light : night;",
+  "            pm.setComponentEnabledSetting(on, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);",
+  "            pm.setComponentEnabledSetting(off, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);",
+  "            call.resolve();",
+  "        } catch (Exception e) {",
+  "            call.reject(\"Could not change the icon\");",
   "        }",
   "    }",
   "}"
@@ -158,6 +180,39 @@ var APP_SETTINGS_JAVA = [
     '}');
   write(mainActivity, src);
   log('added the "Open settings" helper to ' + pkg[1]);
+})();
+
+// Two launcher entries (light icon and dark icon) so the home-screen icon can follow the app's theme.
+// MainActivity stops being the launcher itself; the "light" entry starts enabled. All-or-nothing: if the manifest
+// does not look as expected nothing is changed and the app simply keeps its one normal icon.
+(function addLauncherAliases() {
+  var mp = path.join(main, 'AndroidManifest.xml');
+  var mf = read(mp);
+  if (mf.indexOf('LauncherLight') !== -1) return; // already patched
+  var filter = /[ \t]*<intent-filter>\s*<action android:name="android\.intent\.action\.MAIN"\s*\/>\s*<category android:name="android\.intent\.category\.LAUNCHER"\s*\/>\s*<\/intent-filter>[ \t]*\r?\n?/;
+  if (!filter.test(mf) || mf.indexOf('android:name=".MainActivity"') === -1 || mf.indexOf('</activity>') === -1) {
+    log('WARNING: unexpected manifest; skipping the light/dark home-screen icon');
+    return;
+  }
+  function alias(name, icon, enabled) {
+    return '\n        <activity-alias\n' +
+      '            android:name=".' + name + '"\n' +
+      '            android:targetActivity=".MainActivity"\n' +
+      '            android:label="@string/app_name"\n' +
+      '            android:icon="@mipmap/' + icon + '"\n' +
+      '            android:roundIcon="@mipmap/' + icon + '_round"\n' +
+      '            android:enabled="' + enabled + '"\n' +
+      '            android:exported="true">\n' +
+      '            <intent-filter>\n' +
+      '                <action android:name="android.intent.action.MAIN" />\n' +
+      '                <category android:name="android.intent.category.LAUNCHER" />\n' +
+      '            </intent-filter>\n' +
+      '        </activity-alias>\n';
+  }
+  mf = mf.replace(filter, '');
+  mf = mf.replace('</activity>', '</activity>\n' + alias('LauncherLight', 'ic_launcher', 'true') + alias('LauncherDark', 'ic_launcher_dark', 'false'));
+  write(mp, mf);
+  log('added the light and dark launcher icons');
 })();
 
 // Resources: icons, status-bar icon, splash colour.
