@@ -1,3 +1,2 @@
-- The reminder time rollers are bigger, and the colon now sits close to the hour and minute.
-- The logo next to the title is a little bigger and closer to the name.
-- Updating: Download now opens the newest version exactly once (no second download).
+- The home-screen icon now follows light and dark again: the app asks the phone which icon is on and fixes it after an update.
+- If the phone ever refuses to switch the icon, the reason is shown under More info.

@@ -1844,19 +1844,39 @@
   // ---------- Android app: the home-screen icon follows the theme ----------
   // Dark theme -> dark icon, light theme -> light icon. The phone may flicker the home screen while it swaps the icon,
   // so this happens when you leave the app, not while you are looking at it.
-  var ICON_KEY = 'todo-icon-dark';
-  function syncLauncherIcon() {
-    if (!isNativeApp || !AppSettings) return;
-    var dark = effectiveTheme() === 'dark';
-    var last = null;
-    try { last = localStorage.getItem(ICON_KEY); } catch (e) { /* ignore */ }
-    if (last === (dark ? '1' : '0')) return;
-    try {
-      AppSettings.setLauncherIcon({ dark: dark }).then(function () {
-        try { localStorage.setItem(ICON_KEY, dark ? '1' : '0'); } catch (e) { /* ignore */ }
-      }, function () { /* this build cannot switch icons: keep the normal one */ });
-    } catch (e) { /* ignore */ }
+  // The phone itself is asked which icon is on (nothing is remembered in the app, so an update or a reinstall can never
+  // leave it out of step), and it is only changed when it differs from the theme.
+  var iconBusy = false;
+  function setIconStatus(text) {
+    var p = document.getElementById('icon-status');
+    if (!p) return;
+    p.textContent = text;
+    p.hidden = !text;
   }
+  function syncLauncherIcon() {
+    if (!isNativeApp || !AppSettings || iconBusy) return;
+    var dark = effectiveTheme() === 'dark';
+    function fail(e) {
+      iconBusy = false;
+      setIconStatus('Home-screen icon: could not switch (' + errText(e) + ')');
+    }
+    function apply() {
+      AppSettings.setLauncherIcon({ dark: dark }).then(function () {
+        iconBusy = false;
+        setIconStatus('');
+      }, fail);
+    }
+    iconBusy = true;
+    try {
+      if (typeof AppSettings.getLauncherIcon === 'function') {
+        AppSettings.getLauncherIcon().then(function (r) {
+          if (r && r.dark === dark) { iconBusy = false; setIconStatus(''); return; }
+          apply();
+        }, function () { apply(); });
+      } else apply();
+    } catch (e) { fail(e); }
+  }
+  setTimeout(syncLauncherIcon, 3500); // once after opening: fixes the icon after an update, without a visible flicker during the splash
   document.addEventListener('visibilitychange', function () { if (document.hidden) syncLauncherIcon(); });
   window.addEventListener('pagehide', syncLauncherIcon);
 
