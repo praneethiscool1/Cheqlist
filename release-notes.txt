@@ -1,2 +1,2 @@
-- The home-screen icon now follows light and dark again: the app asks the phone which icon is on and fixes it after an update.
-- If the phone ever refuses to switch the icon, the reason is shown under More info.
+- The date shortcuts are now just Today and Tomorrow.
+- The home-screen icon no longer switches with light/dark mode (it caused the app to close). It stays the light icon.

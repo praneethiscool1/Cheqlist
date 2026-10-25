@@ -570,7 +570,7 @@
         }
 
         var chips = el('div', 'sheet-chips');
-        [['Today', today], ['Tomorrow', addDays(today, 1)], ['In a week', addDays(today, 7)]].forEach(function (c) {
+        [['Today', today], ['Tomorrow', addDays(today, 1)]].forEach(function (c) {
           var b = button('sheet-chip' + (selected === c[1] ? ' is-selected' : ''), c[0], function () { choose(c[1], b); });
           chips.appendChild(b);
         });
@@ -1840,45 +1840,6 @@
   if (themeMedia && themeMedia.addEventListener) {
     themeMedia.addEventListener('change', function () { if (themeChoice === 'auto') applyTheme(); });
   }
-
-  // ---------- Android app: the home-screen icon follows the theme ----------
-  // Dark theme -> dark icon, light theme -> light icon. The phone may flicker the home screen while it swaps the icon,
-  // so this happens when you leave the app, not while you are looking at it.
-  // The phone itself is asked which icon is on (nothing is remembered in the app, so an update or a reinstall can never
-  // leave it out of step), and it is only changed when it differs from the theme.
-  var iconBusy = false;
-  function setIconStatus(text) {
-    var p = document.getElementById('icon-status');
-    if (!p) return;
-    p.textContent = text;
-    p.hidden = !text;
-  }
-  function syncLauncherIcon() {
-    if (!isNativeApp || !AppSettings || iconBusy) return;
-    var dark = effectiveTheme() === 'dark';
-    function fail(e) {
-      iconBusy = false;
-      setIconStatus('Home-screen icon: could not switch (' + errText(e) + ')');
-    }
-    function apply() {
-      AppSettings.setLauncherIcon({ dark: dark }).then(function () {
-        iconBusy = false;
-        setIconStatus('');
-      }, fail);
-    }
-    iconBusy = true;
-    try {
-      if (typeof AppSettings.getLauncherIcon === 'function') {
-        AppSettings.getLauncherIcon().then(function (r) {
-          if (r && r.dark === dark) { iconBusy = false; setIconStatus(''); return; }
-          apply();
-        }, function () { apply(); });
-      } else apply();
-    } catch (e) { fail(e); }
-  }
-  setTimeout(syncLauncherIcon, 3500); // once after opening: fixes the icon after an update, without a visible flicker during the splash
-  document.addEventListener('visibilitychange', function () { if (document.hidden) syncLauncherIcon(); });
-  window.addEventListener('pagehide', syncLauncherIcon);
 
   // ---------- Android app: "update available" notice ----------
   // The app cannot install updates silently (Android requires you to tap Install), but it can tell you.
