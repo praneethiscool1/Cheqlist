@@ -1,2 +1,3 @@
-- The date shortcuts are now just Today and Tomorrow.
-- The home-screen icon no longer switches with light/dark mode (it caused the app to close). It stays the light icon.
+- Daily task notices (when notifications are on): at 8:00 PM the day before you get "N tasks due tomorrow", and at 8:00 AM on the day "N tasks due today".
+- New optional home-screen widget "Cheqlist: today": it lists today's tasks, ticked and not ticked.
+- An "Add widget" button above the drop-downs asks your home screen to place the widget.

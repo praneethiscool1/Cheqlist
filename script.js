@@ -20,6 +20,9 @@
   var MAX_NID = 2000000000;               // native notification ids stay below this
   var TEST_NOTIFICATION_ID = 2100000000;  // reserved id (never used for a task alert)
   var CHANNEL_ID = 'reminders';
+  var DIGEST_BASE = 2000000000;           // ids above this are the daily "tasks due" notices (below the test id)
+  var DIGEST_EVENING_HOUR = 20;           // "tasks due tomorrow" arrives at 8:00 PM the day before
+  var DIGEST_MORNING_HOUR = 8;            // "tasks due today" arrives at 8:00 AM on the day
 
   // ---------- Page elements ----------
   var form = document.getElementById('add-form');
@@ -79,6 +82,36 @@
   function todayString() {
     var d = new Date();
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+  // Daily notices: how many unfinished tasks are due on a day, and the moments they are sent.
+  function dayStart(dateStr) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  }
+  function dayNumber(dateStr) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    return Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000);
+  }
+  function digestAt(dateStr, kind) { // kind: 'today' (morning of the day) | 'tomorrow' (evening before)
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    return kind === 'today'
+      ? new Date(+m[1], +m[2] - 1, +m[3], DIGEST_MORNING_HOUR, 0, 0).getTime()
+      : new Date(+m[1], +m[2] - 1, +m[3] - 1, DIGEST_EVENING_HOUR, 0, 0).getTime();
+  }
+  function openTasksOn(dateStr) {
+    return tasks.filter(function (t) { return !t.done && t.date === dateStr; });
+  }
+  function digestText(dateStr, kind) {
+    var list = openTasksOn(dateStr);
+    if (!list.length) return null;
+    var names = list.slice(0, 3).map(function (t) { return firstLine(t.text, 40); }).join(', ');
+    if (list.length > 3) names += ' and ' + (list.length - 3) + ' more';
+    return {
+      count: list.length,
+      title: list.length + (list.length === 1 ? ' task' : ' tasks') + (kind === 'today' ? ' due today' : ' due tomorrow'),
+      body: names
+    };
   }
 
   function isDateString(v) {
@@ -1416,8 +1449,39 @@
 
     if (changed) saveTasks();
     showMissedOverdue(missed);
+    checkDigestsWeb(now);
 
     Array.prototype.forEach.call(listEl.querySelectorAll('.task'), function (li) { li.paintRow(); });
+  }
+
+  // Web version: the same daily notices, shown while the page is open (a web page cannot wake itself up when closed).
+  var DIGEST_SHOWN_KEY = 'todo-digest-shown';
+  var DIGEST_LATE_MS = 30 * 60 * 1000;
+  function checkDigestsWeb(now) {
+    if (isNativeApp || notifyMuted() || !notificationsSupported() || Notification.permission !== 'granted') return;
+    var shown = [];
+    try { shown = JSON.parse(localStorage.getItem(DIGEST_SHOWN_KEY) || '[]'); } catch (e) { shown = []; }
+    if (!Array.isArray(shown)) shown = [];
+    var today = todayString();
+    var tomorrow = new Date(dayStart(today) + 36 * 3600000);
+    var tomorrowStr = tomorrow.getFullYear() + '-' + pad2(tomorrow.getMonth() + 1) + '-' + pad2(tomorrow.getDate());
+    var todo = [];
+    [[today, 'today'], [tomorrowStr, 'tomorrow']].forEach(function (p) {
+      var k = p[0] + '|' + p[1];
+      if (shown.indexOf(k) !== -1) return;
+      var at = digestAt(p[0], p[1]);
+      if (now < at || now - at > DIGEST_LATE_MS) return; // only around its time: a notice from hours ago is just noise
+      var info = digestText(p[0], p[1]);
+      if (!info) return;
+      todo.push({ key: k, info: info });
+    });
+    if (!todo.length) return;
+    todo.forEach(function (x) { shown.push(x.key); });
+    try { localStorage.setItem(DIGEST_SHOWN_KEY, JSON.stringify(shown.slice(-30))); } catch (e) { /* ignore */ }
+    todo.forEach(function (x) {
+      addBanner(x.info.title + ': ' + x.info.body);
+      showSystemNotification(x.info.title, x.info.body, 'digest-' + x.key).catch(function () { /* the banner already showed it */ });
+    });
   }
 
   // If two tabs are open, only the first one to claim a reminder shows it.
@@ -1534,7 +1598,50 @@
     return n;
   }
 
+  // The home-screen widget ("Today") only displays: the app hands it the tasks of today and the next few days
+  // (the next days so it already has them when midnight passes) and it picks today's by the phone's own date.
+  var lastWidgetJson = '';
+
+  function syncWidget() {
+    if (!isNativeApp || !AppSettings || typeof AppSettings.setWidgetTasks !== 'function' || !booted) return;
+    var from = dayStart(todayString());
+    var list = tasks.filter(function (t) {
+      return t.date && isDateString(t.date) && dayStart(t.date) >= from && dayStart(t.date) <= from + 4 * 86400000;
+    }).sort(function (a, b) { return (a.order - b.order) || (tasks.indexOf(a) - tasks.indexOf(b)); })
+      .map(function (t) { return { d: t.date, t: firstLine(t.text, 120), x: t.done ? 1 : 0 }; });
+    var json = JSON.stringify(list);
+    if (json === lastWidgetJson) return;
+    try {
+      AppSettings.setWidgetTasks({ tasks: json }).then(function () { lastWidgetJson = json; }, function () { /* no widget support in this build */ });
+    } catch (e) { /* ignore */ }
+  }
+
+  var widgetAddBtn = document.getElementById('widget-add');
+  var widgetMsg = document.getElementById('widget-msg');
+  function setWidgetMessage(text, isError) {
+    if (!widgetMsg) return;
+    widgetMsg.textContent = text;
+    widgetMsg.classList.toggle('is-error', !!isError);
+    widgetMsg.classList.toggle('is-ok', !!text && !isError);
+  }
+  var WIDGET_MANUAL = 'Your home screen did not offer to place it. Press and hold an empty spot on the home screen, choose Widgets, then Cheqlist: today.';
+  if (isNativeApp && AppSettings && typeof AppSettings.addWidget === 'function' && widgetAddBtn) {
+    document.getElementById('widget-box').hidden = false;
+    widgetAddBtn.addEventListener('click', function () {
+      lastWidgetJson = ''; // make sure the widget has the current tasks before it appears
+      syncWidget();
+      setWidgetMessage('', false);
+      var asked;
+      try { asked = AppSettings.addWidget(); } catch (e) { setWidgetMessage(WIDGET_MANUAL, true); return; }
+      asked.then(function (r) {
+        if (r && r.started) setWidgetMessage('Choose where to place the widget on your home screen. To resize or move it later, press and hold it there.', false);
+        else setWidgetMessage(WIDGET_MANUAL, true);
+      }, function () { setWidgetMessage(WIDGET_MANUAL, true); });
+    });
+  }
+
   function scheduleNativeSync() {
+    syncWidget();
     if (!LN || !booted) return;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(runNativeSync, 150);
@@ -1577,6 +1684,30 @@
           var key = [t.id, t.reminder, t.date, t.text, t.description].join('|');
           desired[t.nid] = key;
           list.push(buildNativeNotification(t, due, key, channelOk, exactOk));
+        });
+
+        // Daily notices: "N tasks due tomorrow" the evening before and "N tasks due today" in the morning.
+        var dates = {};
+        tasks.forEach(function (t) { if (!t.done && t.date && isDateString(t.date)) dates[t.date] = true; });
+        Object.keys(dates).sort().slice(0, 60).forEach(function (d) {
+          ['tomorrow', 'today'].forEach(function (kind) {
+            var at = digestAt(d, kind);
+            if (muted || at <= now + 2000) return;
+            var info = digestText(d, kind);
+            if (!info) return;
+            var id = DIGEST_BASE + 1 + dayNumber(d) * 2 + (kind === 'today' ? 1 : 0);
+            var key = ['digest', d, kind, info.title, info.body].join('|');
+            desired[id] = key;
+            var n = {
+              id: id, title: info.title, body: info.body,
+              schedule: { at: new Date(at), allowWhileIdle: true },
+              smallIcon: 'ic_stat_todo', iconColor: '#3B6CF6',
+              extra: { key: key, digest: d },
+              isExactNotification: exactOk
+            };
+            if (channelOk) n.channelId = CHANNEL_ID;
+            list.push(n);
+          });
         });
 
         var pendingKeys = {};

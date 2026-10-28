@@ -1177,3 +1177,8 @@ input, textarea, [contenteditable="true"] {
 
 /* Update download button while the download is being started */
 .is-busy { opacity: 0.6; pointer-events: none; }
+
+/* "Add widget" button, above all the drop-downs */
+.widget-box { margin: 22px 0 14px; }
+.widget-box .btn-primary { width: 100%; }
+.widget-box .backup-msg { margin: 10px 0 0; }

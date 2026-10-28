@@ -47,3 +47,7 @@ Verified here: the app logic against mocked phone plugins, the real drag-and-dro
 build script generates a valid Android project. NOT verified here: compiling the APK and notification delivery
 on a real phone, because this environment cannot reach Android's build servers. The first workflow run is the
 first real build; if it fails, open the failed run's log and send me the red lines.
+
+## Home-screen widget
+
+The build also adds a small "Cheqlist: today" widget (files in `android-widget/` and the `widget_*` / `today_widget*` files in `android-res/`). It only displays today's tasks; the app hands it the list whenever tasks change. Add it with the "Add widget" button inside the app, or long-press the home screen, open Widgets and add "Cheqlist: today".
