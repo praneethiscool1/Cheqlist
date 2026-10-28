@@ -89,11 +89,15 @@ write(manifestPath, manifest);
 var APP_SETTINGS_JAVA = [
   "package __PACKAGE__;",
   "",
+  "import android.appwidget.AppWidgetManager;",
+  "import android.content.ComponentName;",
   "import android.content.Context;",
   "import android.content.Intent;",
   "import android.net.Uri;",
+  "import android.os.Build;",
   "import android.provider.Settings;",
   "",
+  "import com.getcapacitor.JSObject;",
   "import com.getcapacitor.Plugin;",
   "import com.getcapacitor.PluginCall;",
   "import com.getcapacitor.PluginMethod;",
@@ -122,6 +126,38 @@ var APP_SETTINGS_JAVA = [
   "            } catch (Exception second) {",
   "                call.reject(\"Could not open the settings screen\");",
   "            }",
+  "        }",
+  "    }",
+  "",
+  "    /** Asks the phone's home screen to place the Today widget (the person picks the spot). started=false when the launcher cannot do this. */",
+  "    @PluginMethod",
+  "    public void addWidget(PluginCall call) {",
+  "        try {",
+  "            Context context = getContext();",
+  "            AppWidgetManager manager = AppWidgetManager.getInstance(context);",
+  "            JSObject ret = new JSObject();",
+  "            boolean started = false;",
+  "            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && manager.isRequestPinAppWidgetSupported()) {",
+  "                started = manager.requestPinAppWidget(new ComponentName(context, TodayWidgetProvider.class), null, null);",
+  "            }",
+  "            ret.put(\"started\", started);",
+  "            call.resolve(ret);",
+  "        } catch (Exception e) {",
+  "            call.reject(\"Could not ask for the widget\");",
+  "        }",
+  "    }",
+  "",
+  "    /** Hands the widget the task list (a small JSON text) and redraws any widget on the home screen. */",
+  "    @PluginMethod",
+  "    public void setWidgetTasks(PluginCall call) {",
+  "        try {",
+  "            String tasks = call.getString(\"tasks\", \"[]\");",
+  "            getContext().getSharedPreferences(TodayWidgetService.PREFS, Context.MODE_PRIVATE)",
+  "                    .edit().putString(TodayWidgetService.KEY_TASKS, tasks).apply();",
+  "            TodayWidgetProvider.refreshAll(getContext());",
+  "            call.resolve();",
+  "        } catch (Exception e) {",
+  "            call.reject(\"Could not update the widget\");",
   "        }",
   "    }",
   "",
@@ -176,6 +212,54 @@ var APP_SETTINGS_JAVA = [
     '}');
   write(mainActivity, src);
   log('added the "Open settings" helper to ' + pkg[1]);
+})();
+
+// Home-screen widget "Today": two small Java files (android-widget/), its layouts and colours (android-res/), and the
+// receiver + service entries in the manifest. The widget is optional for the person (they add it from the home screen's
+// widget list); the Java files are always added because the app's helper refers to them. Only the manifest entry
+// is guarded: if the manifest does not look as expected the widget simply will not appear in the list.
+(function addWidget() {
+  var javaRoot = path.join(main, 'java');
+  var dir = null;
+  (function find(d) {
+    if (!fs.existsSync(d)) return;
+    fs.readdirSync(d, { withFileTypes: true }).forEach(function (e) {
+      var p = path.join(d, e.name);
+      if (e.isDirectory()) find(p); else if (e.name === 'MainActivity.java') dir = d;
+    });
+  })(javaRoot);
+  if (!dir) fail('could not find MainActivity.java for the widget');
+  var pkg = /^\s*package\s+([\w.]+)\s*;/m.exec(read(path.join(dir, 'MainActivity.java')));
+  if (!pkg) fail('could not read the package name for the widget');
+  ['TodayWidgetProvider.java', 'TodayWidgetService.java'].forEach(function (f) {
+    var src = path.join(root, 'android-widget', f);
+    if (!fs.existsSync(src)) fail('missing android-widget/' + f);
+    write(path.join(dir, f), read(src).replace('__PACKAGE__', pkg[1]));
+  });
+  var mp = path.join(main, 'AndroidManifest.xml');
+  var mf = read(mp);
+  if (mf.indexOf('TodayWidgetProvider') !== -1) return;
+  if (mf.indexOf('</application>') === -1) { log('WARNING: unexpected manifest; the home-screen widget will not be offered'); return; }
+  mf = mf.replace('</application>',
+    '    <receiver\n' +
+    '            android:name=".TodayWidgetProvider"\n' +
+    '            android:label="@string/widget_name"\n' +
+    '            android:exported="true">\n' +
+    '            <intent-filter>\n' +
+    '                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />\n' +
+    '                <action android:name="android.intent.action.DATE_CHANGED" />\n' +
+    '                <action android:name="android.intent.action.TIME_SET" />\n' +
+    '                <action android:name="android.intent.action.TIMEZONE_CHANGED" />\n' +
+    '            </intent-filter>\n' +
+    '            <meta-data android:name="android.appwidget.provider" android:resource="@xml/today_widget_info" />\n' +
+    '        </receiver>\n' +
+    '        <service\n' +
+    '            android:name=".TodayWidgetService"\n' +
+    '            android:exported="false"\n' +
+    '            android:permission="android.permission.BIND_REMOTEVIEWS" />\n' +
+    '    </application>');
+  write(mp, mf);
+  log('added the "Today" home-screen widget');
 })();
 
 // Resources: icons, status-bar icon, splash colour.

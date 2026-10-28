@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">Cheqlist: today</string>
+    <string name="widget_description">Today\'s tasks, ticked and not ticked.</string>
+    <string name="widget_title">Today</string>
+    <string name="widget_empty_text">Nothing planned for today</string>
+</resources>
